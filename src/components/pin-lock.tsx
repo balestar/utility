@@ -42,21 +42,19 @@ async function hashPin(pin: string): Promise<string> {
 
 export function PinLock({ children }: { children: ReactNode }) {
   const [locked, setLocked] = useState(true);
-  const [hasPin, setHasPin] = useState(false);
+  const [hasPin, setHasPin] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!localStorage.getItem(STORAGE_KEY);
+  });
   const [ready, setReady] = useState(false);
 
+  // Sync locked state with hasPin on mount (single render batch)
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      setHasPin(true);
-      setLocked(true);
-    } else {
-      setHasPin(false);
-      // No PIN set yet — allow access but show setup on first visit
-      setLocked(false);
+    if (!ready) {
+      setReady(true);
+      if (!hasPin) setLocked(false);
     }
-    setReady(true);
-  }, []);
+  }, [ready, hasPin]);
 
   // Auto-lock timer
   useEffect(() => {
@@ -92,7 +90,7 @@ export function PinLock({ children }: { children: ReactNode }) {
     return false;
   }, []);
 
-  const setPin = useCallback(async (pin: string) => {
+  const setPinCb = useCallback(async (pin: string) => {
     const h = await hashPin(pin);
     localStorage.setItem(STORAGE_KEY, h);
     setHasPin(true);
@@ -107,7 +105,7 @@ export function PinLock({ children }: { children: ReactNode }) {
   }
 
   return (
-    <PinContext.Provider value={{ locked, lock, unlock, setPin, hasPin }}>
+    <PinContext.Provider value={{ locked, lock, unlock, setPin: setPinCb, hasPin }}>
       {locked ? <LockScreen /> : children}
     </PinContext.Provider>
   );
@@ -116,17 +114,21 @@ export function PinLock({ children }: { children: ReactNode }) {
 function LockScreen() {
   const { unlock, setPin, hasPin } = usePinLock();
   const [pin, setPinLocal] = useState("");
-  const [mode, setMode] = useState<"unlock" | "set" | "confirm">("unlock");
+  const [mode, setMode] = useState<"unlock" | "set" | "confirm">(
+    hasPin ? "unlock" : "set",
+  );
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [modeInit, setModeInit] = useState(false);
 
   useEffect(() => {
+    if (modeInit) return;
+    setModeInit(true);
     setMode(hasPin ? "unlock" : "set");
     setPinLocal("");
     setConfirmPin("");
-    setError("");
-  }, [hasPin]);
+  }, [hasPin, modeInit]);
 
   const submitPin = async (value: string) => {
     if (mode === "unlock") {
@@ -143,7 +145,6 @@ function LockScreen() {
       if (value === pin) {
         await setPin(pin);
         setMode("unlock");
-        // Re-render will show PIN entry because hasPin is now true
         setPinLocal("");
         setConfirmPin("");
       } else {

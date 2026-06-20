@@ -32,15 +32,13 @@ async function rawRpcCall(
 
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
-    let timeout: ReturnType<typeof setTimeout>;
     const chunks: Buffer[] = [];
 
     const cleanup = () => {
-      clearTimeout(timeout);
       socket.destroy();
     };
 
-    timeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       cleanup();
       reject(new Error("RPC socket timeout"));
     }, 15000);
@@ -88,8 +86,6 @@ export async function rpcCall<T>(
   params: unknown[] = [],
   token?: string,
 ): Promise<T> {
-  const config = getMsfConfig();
-
   // If we have a token, prepend it to params per MSF convention:
   //   [method, token, ...args]
   const args = token ? [token, ...params] : params;

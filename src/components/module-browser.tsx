@@ -22,10 +22,12 @@ export function ModuleBrowser() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     setLoading(true);
     setError(null);
 
-    fetch(`/api/modules?type=${activeTab}`)
+    fetch(`/api/modules?type=${activeTab}`, { signal: controller.signal })
       .then((res) => res.json())
       .then((data) => {
         if (data.error) {
@@ -35,8 +37,16 @@ export function ModuleBrowser() {
         }
         setModules(data.modules ?? []);
       })
-      .catch(() => setError("Failed to load modules"))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (err.name !== "AbortError") {
+          setError("Failed to load modules");
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+
+    return () => controller.abort();
   }, [activeTab]);
 
   return (
@@ -64,7 +74,7 @@ export function ModuleBrowser() {
         </div>
       </div>
 
-      {loading && <p className="text-sm text-zinc-500">Loading modules…</p>}
+      {loading && <p className="text-sm text-zinc-500">Loading modules&hellip;</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {!loading && !error && (

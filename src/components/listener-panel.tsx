@@ -22,6 +22,7 @@ export function ListenerPanel() {
   const [formLhost, setFormLhost] = useState("");
   const [formLport, setFormLport] = useState(4444);
   const [starting, setStarting] = useState(false);
+  const [fetched, setFetched] = useState(false);
 
   const fetchListeners = useCallback(async () => {
     try {
@@ -41,8 +42,10 @@ export function ListenerPanel() {
   }, []);
 
   useEffect(() => {
+    if (fetched) return;
+    setFetched(true);
     fetchListeners();
-  }, [fetchListeners]);
+  }, [fetchListeners, fetched]);
 
   const handleStart = async () => {
     if (!formLhost) return;
