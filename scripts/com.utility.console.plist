@@ -3,19 +3,21 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.metasploit.console</string>
+    <string>com.utility.console</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/starlight/metasploit-app/scripts/start-after-reboot.sh</string>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>cd ~/utility && docker compose up -d</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/tmp/metasploit-console-startup.log</string>
+    <string>/tmp/utility-console-startup.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/metasploit-console-startup.err</string>
+    <string>/tmp/utility-console-startup.err</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

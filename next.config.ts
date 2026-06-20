@@ -2,8 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  // Stealth: use a generic route prefix so URLs don't scream "metasploit"
-  // assetPrefix is intentionally not set — we rely on Caddy for obfuscation
+  turbopack: {
+    root: __dirname,
+  },
   headers: async () => [
     {
       source: "/(.*)",

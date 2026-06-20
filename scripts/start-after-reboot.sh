@@ -1,23 +1,23 @@
 #!/bin/sh
 # ─────────────────────────────────────────────────────────
-# Metasploit Console — Reboot Survival Startup Script
-# Run this after every machine reboot to bring the full
-# stack back online with persisted data.
+# Utility — Post-Reboot Startup
 #
-# Usage:  chmod +x scripts/start-after-reboot.sh
-#         ./scripts/start-after-reboot.sh
+# Brings the full Docker stack online after a machine reboot.
+# Auto-detects the project directory so it works from any install path.
 #
-# For automatic startup on macOS, add to LaunchAgents or
-# run:  sudo crontab -e
-# and add:  @reboot /path/to/scripts/start-after-reboot.sh
+# Usage:  ./scripts/start-after-reboot.sh
+#
+# For automatic startup on macOS:
+#   This is configured as a LaunchAgent during factory recovery.
 # ─────────────────────────────────────────────────────────
 
 set -e
 
+# Auto-detect project directory (works wherever the repo is cloned)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "=== Metasploit Console — Post-Reboot Startup ==="
+echo "=== Utility Stack — Post-Reboot Startup ==="
 echo "Project: $PROJECT_DIR"
 echo ""
 
