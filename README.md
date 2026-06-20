@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Utility
 
-## Getting Started
+Remote administration tool — a web dashboard for managing Metasploit Framework sessions, payloads, listeners, and modules.
 
-First, run the development server:
+## Architecture
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+Caddy (:80/:443) → Next.js Dashboard (:3000) → MSF RPC (TCP :55553) → PostgreSQL (:5432)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Quick Start
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# 1. Clone and enter
+git clone https://github.com/balestar/utility.git
+cd utility
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# 2. Start the full stack
+docker compose up -d
 
-## Learn More
+# 3. Access the dashboard
+open http://localhost:3000
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Features
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Module | Description |
+|---|---|
+| **Dashboard** | Overview with stat cards and quick actions |
+| **Payloads** | Generate backdoors (exe, elf, python, powershell, etc.) |
+| **Listeners** | Start/stop multi/handler listeners |
+| **Sessions** | View active shells and meterpreter sessions |
+| **Modules** | Browse exploits, payloads, and auxiliary modules |
+| **Workspaces** | Manage isolated engagement environments |
+| **Settings** | App lock, connection info, quick commands |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Security
 
-## Deploy on Vercel
+- PIN lock screen with auto-lock after inactivity
+- Panic button (double-click bottom-right corner to lock)
+- API key authentication on all routes
+- Caddy reverse proxy with basic auth + TLS
+- Generic "Utility" branding (PWA named "Utility")
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Development
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Run dashboard locally with demo data
+cp .env.example .env.local
+# Edit .env.local — ensure MSF_DEMO_MODE=true
+npm install
+npm run dev
+```
+
+## Remote Access
+
+```bash
+# Option 1: Tailscale
+tailscale up
+tailscale funnel 80
+
+# Option 2: ngrok
+ngrok http 80
+
+# Option 3: LAN (already works on port 80)
+```
+
+## License
+
+MIT

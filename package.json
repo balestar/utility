@@ -1,7 +1,8 @@
 {
-  "name": "metasploit-app",
-  "version": "0.1.0",
+  "name": "utility",
+  "version": "1.0.0",
   "private": true,
+  "description": "Remote administration tool — system management and monitoring dashboard",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

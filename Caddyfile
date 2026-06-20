@@ -1,0 +1,32 @@
+# Caddyfile v2 — reverse proxy for Metasploit Dashboard
+#
+# Basic auth password is a bcrypt hash of "changeme".
+# Set your own: caddy hash-password --plaintext "your-password"
+
+{$DOMAIN:localhost} {
+    # Basic auth at the proxy layer
+    basicauth {
+        admin $2a$14$Zk2qHCXc5c3SVIwF.1wPZe1O3xMJXnI7d4GWg3YQT1G5Q9nH8QnuS
+    }
+
+    # Proxy to Next.js with API key injection
+    reverse_proxy dashboard:{$DASHBOARD_PORT:3000} {
+        header_up X-API-Key {$DASHBOARD_API_KEY}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Response security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "no-referrer-when-downgrade"
+        -Server
+    }
+
+    log {
+        output file /data/access.log
+        format json
+    }
+}

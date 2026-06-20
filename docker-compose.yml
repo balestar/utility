@@ -1,0 +1,119 @@
+services:
+  # ── PostgreSQL Database ────────────────────────────────────
+  metasploit_db:
+    image: postgres:16
+    container_name: metasploit-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: msf
+      POSTGRES_PASSWORD: msf
+      POSTGRES_DB: msf
+      POSTGRES_HOST_AUTH_METHOD: md5
+    volumes:
+      - msf_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U msf -d msf"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  # ── Metasploit Framework RPC (MessagePack protocol, port 55553) ──
+  metasploit:
+    image: sadparad1se/metasploit-framework:rpc
+    container_name: metasploit-rpc
+    restart: unless-stopped
+    depends_on:
+      metasploit_db:
+        condition: service_healthy
+    environment:
+      METASPLOIT_DB_HOST: metasploit_db
+      METASPLOIT_DB_PORT: 5432
+      METASPLOIT_DB_NAME: msf
+      METASPLOIT_DB_USERNAME: msf
+      METASPLOIT_DB_PASSWORD: msf
+      METASPLOIT_RPC_HOST: 0.0.0.0
+      METASPLOIT_RPC_PORT: 55553
+      METASPLOIT_RPC_SSL: "false"
+      METASPLOIT_RPC_USERNAME: msf
+      METASPLOIT_RPC_PASSWORD: ${MSF_RPC_PASSWORD:-changeme}
+    ports:
+      - "127.0.0.1:55553:55553"
+    volumes:
+      - msf_payloads:/payloads
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c 'echo > /dev/tcp/127.0.0.1/55553' 2>/dev/null; pgrep -x ruby >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    tty: true
+
+  # ── Next.js Dashboard ─────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: msf-dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      MSF_RPC_HOST: metasploit
+      MSF_RPC_PORT: 55553
+      MSF_RPC_SSL: "false"
+      MSF_RPC_USER: msf
+      MSF_RPC_PASSWORD: ${MSF_RPC_PASSWORD:-changeme}
+      MSF_DEMO_MODE: ${MSF_DEMO_MODE:-false}
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-dev-key-change-in-production}
+    volumes:
+      - dashboard_payloads:/app/payloads
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - msf_payloads:/host-payloads:ro
+    depends_on:
+      metasploit:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Caddy Reverse Proxy ────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: msf-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${CADDY_DOMAIN:-localhost}
+      DASHBOARD_PORT: 3000
+      CADDY_BASIC_AUTH_USER: ${CADDY_AUTH_USER:-admin}
+      CADDY_BASIC_AUTH_PASS: ${CADDY_AUTH_PASS:-changeme}
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-dev-key-change-in-production}
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  msf_db_data:
+  msf_payloads:
+  dashboard_payloads:
+  caddy_data:
+  caddy_config:
