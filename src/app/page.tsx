@@ -1,64 +1,105 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useToast } from "@/components/toast";
 
 type Stats = {
   sessions: number;
   listeners: number;
   workspaces: number;
-  modules: number;
   backend: "online" | "offline" | "demo";
   version?: string;
 };
 
-const QUICK_LINKS = [
-  { href: "/agents", label: "Agent Control", sub: "Post-exploitation C2", danger: true },
-  { href: "/payloads", label: "Generate Payload", sub: "msfvenom wrapper" },
-  { href: "/listeners", label: "Start Listener", sub: "multi/handler" },
-  { href: "/locker", label: "CryptoLocker", sub: "Encryption campaigns", danger: true },
-  { href: "/modules", label: "Module Browser", sub: "Exploits & auxiliary" },
-  { href: "/sessions", label: "Sessions", sub: "Active connections" },
+type Activity = { ts: string; msg: string; tone: "info" | "success" | "warn" };
+
+const QUICK = [
+  { href: "/agents",    label: "Agent Control",   sub: "Send commands to sessions", accent: true  },
+  { href: "/listeners", label: "Start Listener",   sub: "multi/handler reverse shell" },
+  { href: "/payloads",  label: "Generate Payload", sub: "msfvenom wrapper" },
+  { href: "/locker",    label: "CryptoLocker",     sub: "Encryption campaigns",      accent: true  },
+  { href: "/modules",   label: "Modules",          sub: "Exploit & auxiliary browser" },
+  { href: "/sessions",  label: "Sessions",         sub: "View active connections" },
 ];
 
-export default function Dashboard() {
-  const [stats, setStats] = useState<Stats>({ sessions: 0, listeners: 0, workspaces: 0, modules: 0, backend: "offline" });
-  const [loading, setLoading] = useState(true);
-  const [now] = useState(() => new Date());
-
+function LiveClock() {
+  const [time, setTime] = useState(() => new Date());
   useEffect(() => {
-    async function load() {
-      try {
-        const [h, s, l, w] = await Promise.allSettled([
-          fetch("/api/health").then(r => r.json()),
-          fetch("/api/sessions").then(r => r.json()),
-          fetch("/api/listeners").then(r => r.json()),
-          fetch("/api/workspaces").then(r => r.json()),
-        ]);
+    const t = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="text-right">
+      <p className="font-mono text-3xl font-bold tabular-nums tracking-tight text-white">
+        {time.toLocaleTimeString("en-US", { hour12: false })}
+      </p>
+      <p className="mt-0.5 text-[9px] uppercase tracking-[0.18em] text-slate-600">
+        {time.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }).toUpperCase()}
+      </p>
+    </div>
+  );
+}
 
-        const health = h.status === "fulfilled" ? h.value : null;
-        const sess   = s.status === "fulfilled" ? s.value : null;
-        const listen = l.status === "fulfilled" ? l.value : null;
-        const work   = w.status === "fulfilled" ? w.value : null;
+export default function Dashboard() {
+  const [stats, setStats] = useState<Stats>({ sessions: 0, listeners: 0, workspaces: 0, backend: "offline" });
+  const [loading, setLoading] = useState(true);
+  const [log, setLog] = useState<Activity[]>([]);
+  const { toast } = useToast();
 
-        setStats({
-          sessions:   sess?.sessions?.length ?? 0,
-          listeners:  listen?.listeners?.length ?? 0,
-          workspaces: work?.workspaces?.length ?? 0,
-          modules:    0,
-          backend:    health?.demo ? "demo" : health?.connected ? "online" : "offline",
-          version:    health?.version,
-        });
-      } catch { /* silent */ }
-      setLoading(false);
-    }
-    load();
+  const addLog = useCallback((msg: string, tone: Activity["tone"] = "info") => {
+    setLog(prev => [{ ts: new Date().toISOString(), msg, tone }, ...prev].slice(0, 20));
   }, []);
 
-  const time = now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const date = now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }).toUpperCase();
+  const load = useCallback(async () => {
+    try {
+      const [h, s, l, w] = await Promise.allSettled([
+        fetch("/api/health").then(r => r.json()),
+        fetch("/api/agents?action=sessions").then(r => r.json()),
+        fetch("/api/listeners").then(r => r.json()),
+        fetch("/api/workspaces").then(r => r.json()),
+      ]);
 
-  const backendDot =
+      const health    = h.status === "fulfilled" ? h.value : null;
+      const sessions  = s.status === "fulfilled" ? s.value : null;
+      const listeners = l.status === "fulfilled" ? l.value : null;
+      const workspaces= w.status === "fulfilled" ? w.value : null;
+
+      const prev = stats;
+      const newStats: Stats = {
+        sessions:   sessions?.sessions?.length ?? 0,
+        listeners:  listeners?.listeners?.length ?? 0,
+        workspaces: workspaces?.workspaces?.length ?? 0,
+        backend:    health?.demo ? "demo" : health?.connected ? "online" : "offline",
+        version:    health?.version,
+      };
+
+      if (!loading && newStats.sessions > prev.sessions) {
+        addLog(`New session connected (total: ${newStats.sessions})`, "success");
+        toast(`New session! Total: ${newStats.sessions}`, "success");
+      }
+      if (!loading && newStats.sessions < prev.sessions && prev.sessions > 0) {
+        addLog(`Session dropped (total: ${newStats.sessions})`, "warn");
+      }
+      if (loading) {
+        addLog(`Backend ${newStats.backend === "online" ? "connected" : newStats.backend}${health?.version ? ` — MSF ${health.version}` : ""}`, newStats.backend === "online" ? "success" : "info");
+      }
+
+      setStats(newStats);
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, stats, addLog, toast]);
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const t = setInterval(load, 10000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const dotColor =
     stats.backend === "online" ? "bg-green-500" :
     stats.backend === "demo"   ? "bg-amber-500" :
                                  "bg-red-500";
@@ -66,47 +107,39 @@ export default function Dashboard() {
     stats.backend === "online" ? "CONNECTED" :
     stats.backend === "demo"   ? "DEMO MODE" :
                                  "OFFLINE";
+  const backendText =
+    stats.backend === "online" ? "text-green-400" :
+    stats.backend === "demo"   ? "text-amber-400" :
+                                 "text-red-400";
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/[0.05] pb-5">
         <div>
-          <h1 className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500">
-            Command Center
-          </h1>
-          <p className="mt-1 font-mono text-2xl font-bold text-white">{time}</p>
-          <p className="text-[9px] tracking-widest text-slate-600">{date}</p>
-        </div>
-        <div className="text-right">
-          <div className="flex items-center justify-end gap-2">
-            <span className={`h-2 w-2 rounded-full ${backendDot} status-pulse`} />
-            <span className={`text-[10px] font-semibold uppercase tracking-widest ${
-              stats.backend === "online" ? "text-green-500" :
-              stats.backend === "demo"   ? "text-amber-500" :
-                                           "text-red-500"
-            }`}>{backendLabel}</span>
+          <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-600">Command Center</p>
+          <div className="mt-2 flex items-center gap-3">
+            <span className={`h-2 w-2 rounded-full ${dotColor} status-pulse`} />
+            <span className={`text-[10px] font-semibold uppercase tracking-widest ${backendText}`}>{backendLabel}</span>
+            {stats.version && (
+              <span className="font-mono text-[9px] text-slate-700">· MSF {stats.version}</span>
+            )}
           </div>
-          {stats.version && (
-            <p className="mt-1 font-mono text-[9px] text-slate-600">msf {stats.version}</p>
-          )}
         </div>
+        <LiveClock />
       </div>
 
-      {/* Status grid */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "ACTIVE SESSIONS", value: stats.sessions, color: stats.sessions > 0 ? "text-green-400" : "text-slate-600" },
-          { label: "LISTENERS", value: stats.listeners, color: stats.listeners > 0 ? "text-cyan-400" : "text-slate-600" },
-          { label: "WORKSPACES", value: stats.workspaces, color: "text-slate-400" },
-          { label: "PAYLOADS", value: "—", color: "text-slate-600" },
-        ].map(stat => (
-          <div key={stat.label} className="rounded border border-white/[0.05] bg-white/[0.02] px-5 py-4">
-            <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-slate-600">{stat.label}</p>
-            <p className={`mt-2 font-mono text-3xl font-bold tabular-nums ${stat.color}`}>
-              {loading ? (
-                <span className="inline-block h-7 w-10 animate-pulse rounded bg-white/[0.05]" />
-              ) : stat.value}
+          { label: "ACTIVE SESSIONS", value: stats.sessions, color: stats.sessions > 0 ? "text-green-400" : "text-slate-700", accent: stats.sessions > 0 },
+          { label: "LISTENERS",       value: stats.listeners, color: stats.listeners > 0 ? "text-cyan-400" : "text-slate-700", accent: false },
+          { label: "WORKSPACES",      value: stats.workspaces, color: "text-slate-400", accent: false },
+        ].map(s => (
+          <div key={s.label} className={`rounded border px-5 py-4 ${s.accent ? "border-green-900/30 bg-green-950/10" : "border-white/[0.05] bg-white/[0.02]"}`}>
+            <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-slate-600">{s.label}</p>
+            <p className={`mt-2 font-mono text-4xl font-bold tabular-nums ${s.color}`}>
+              {loading ? "—" : s.value}
             </p>
           </div>
         ))}
@@ -114,46 +147,65 @@ export default function Dashboard() {
 
       {/* Quick actions */}
       <div>
-        <h2 className="mb-3 text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-600">Quick Actions</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {QUICK_LINKS.map(link => (
+        <p className="mb-3 text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-600">Quick Actions</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {QUICK.map(q => (
             <Link
-              key={link.href}
-              href={link.href}
-              className={`group flex flex-col rounded border p-5 transition-all ${
-                link.danger
+              key={q.href}
+              href={q.href}
+              className={`group flex flex-col rounded border p-4 transition-all ${
+                q.accent
                   ? "border-red-900/30 bg-red-950/10 hover:border-red-800/50 hover:bg-red-950/20"
                   : "border-white/[0.05] bg-white/[0.02] hover:border-white/[0.10] hover:bg-white/[0.04]"
               }`}
             >
-              <p className={`text-sm font-semibold tracking-tight transition ${
-                link.danger ? "text-red-400 group-hover:text-red-300" : "text-slate-300 group-hover:text-white"
-              }`}>{link.label}</p>
-              <p className="mt-1 text-[10px] text-slate-600">{link.sub}</p>
-              <span className="mt-3 text-[10px] uppercase tracking-widest text-slate-700 group-hover:text-slate-500">
+              <p className={`text-[12px] font-semibold transition ${q.accent ? "text-red-400 group-hover:text-red-300" : "text-slate-300 group-hover:text-white"}`}>
+                {q.label}
+              </p>
+              <p className="mt-0.5 text-[10px] text-slate-600">{q.sub}</p>
+              <p className="mt-3 text-[9px] uppercase tracking-widest text-slate-700 transition group-hover:text-slate-500">
                 Open ›
-              </span>
+              </p>
             </Link>
           ))}
         </div>
       </div>
 
-      {/* Docker stack commands */}
-      <div className="rounded border border-white/[0.05] bg-[#05050c] p-5">
-        <h2 className="mb-3 text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-600">Deploy Stack</h2>
-        <div className="space-y-2 font-mono text-[11px]">
-          {[
-            { cmd: "docker compose up -d", comment: "# start all services" },
-            { cmd: "docker compose ps", comment: "# check status" },
-            { cmd: "docker compose logs -f", comment: "# follow logs" },
-            { cmd: "docker compose down", comment: "# stop all services" },
-          ].map(({ cmd, comment }) => (
-            <div key={cmd} className="flex gap-4">
-              <span className="select-all text-green-500">{cmd}</span>
-              <span className="text-slate-700">{comment}</span>
+      {/* Activity log */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-600">Activity Log</p>
+          {log.length > 0 && (
+            <button type="button" onClick={() => setLog([])} className="text-[9px] text-slate-700 transition hover:text-slate-500">
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="rounded border border-white/[0.05] bg-[#05050c] p-4 font-mono">
+          {log.length === 0 && (
+            <p className="text-[10px] text-slate-700 cursor-blink">Monitoring...</p>
+          )}
+          {log.map((entry, i) => (
+            <div key={i} className="flex gap-3 py-0.5">
+              <span className="shrink-0 text-[9px] text-slate-700">
+                {new Date(entry.ts).toLocaleTimeString("en-US", { hour12: false })}
+              </span>
+              <span className={`text-[10px] ${
+                entry.tone === "success" ? "text-green-500" :
+                entry.tone === "warn"    ? "text-amber-500" :
+                                           "text-slate-400"
+              }`}>
+                {entry.msg}
+              </span>
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Shortcut hint */}
+      <div className="flex items-center justify-center gap-2 pb-2">
+        <kbd className="rounded border border-white/[0.06] px-1.5 py-0.5 text-[9px] text-slate-700">⌘K</kbd>
+        <span className="text-[9px] text-slate-700">Command palette</span>
       </div>
     </div>
   );

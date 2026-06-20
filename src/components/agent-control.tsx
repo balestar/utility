@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useToast } from "./toast";
 
 type AgentSession = {
   id: number;
@@ -71,6 +72,7 @@ export function AgentControl() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const termRef = useRef<HTMLDivElement>(null);
   const paramRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -138,9 +140,11 @@ export function AgentControl() {
       setOutput(data.error ? data.error : data.output);
       setOutputOk(data.success);
       setHistory(h => [{ cmd: label, result: data, ts: new Date().toISOString(), sessionId: selected.id }, ...h].slice(0, 50));
+      toast(data.success ? `${cmd.name} — OK` : `${cmd.name} failed`, data.success ? "success" : "error", 2500);
     } catch {
       setOutput("Network error — could not reach server");
       setOutputOk(false);
+      toast("Network error", "error");
     } finally {
       setExecuting(false);
       setParamValue("");
@@ -166,9 +170,11 @@ export function AgentControl() {
       setOutput(data.error ? data.error : data.output);
       setOutputOk(data.success);
       setHistory(h => [{ cmd, result: data, ts: new Date().toISOString(), sessionId: selected.id! }, ...h].slice(0, 50));
+      toast(data.success ? "Command executed" : "Command failed", data.success ? "success" : "error", 2000);
     } catch {
       setOutput("Network error");
       setOutputOk(false);
+      toast("Network error", "error");
     } finally {
       setExecuting(false);
     }
