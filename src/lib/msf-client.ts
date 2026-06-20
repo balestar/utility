@@ -18,8 +18,12 @@ export async function getConnectionStatus(): Promise<MsfConnectionStatus> {
 
   try {
     const token = await getRpcToken();
-    const version = await rpcCall<{ version: string }>("core.version", [], token);
-    return { connected: true, demo: false, version: version.version };
+    const info = await rpcCall<Record<string, string>>("core.version", [], token);
+    return {
+      connected: true,
+      demo: false,
+      version: info.version ?? info.api ?? "unknown",
+    };
   } catch (error) {
     return {
       connected: false,
@@ -46,15 +50,18 @@ export async function listModules(type: "exploit" | "payload" | "auxiliary") {
         ? "module.payloads"
         : "module.auxiliary";
 
-  const modules = await rpcCall<Record<string, unknown>>(method, [], token);
+  const response = await rpcCall<Record<string, unknown>>(method, [], token);
+  // MSF returns modules under the "modules" key
+  const moduleCollection = response.modules as Record<string, Record<string, string>> | undefined;
+  if (!moduleCollection) return [];
 
-  return Object.entries(modules).map(([name, info]) => {
+  return Object.entries(moduleCollection).map(([name, info]) => {
     const meta = (info ?? {}) as Record<string, string>;
     return {
       name,
       rank: meta.rank ?? "unknown",
       description: meta.description ?? meta.name ?? name,
-      disclosureDate: meta.disclosuredate,
+      disclosureDate: meta.disclosuredate ?? meta.disclosure_date,
     };
   });
 }
@@ -65,13 +72,12 @@ export async function listSessions() {
   if (config.demoMode) return demoSessions;
 
   const token = await getRpcToken();
-  const sessions = await rpcCall<Record<string, Record<string, string>>>(
-    "session.list",
-    [],
-    token,
-  );
+  const response = await rpcCall<Record<string, unknown>>("session.list", [], token);
 
-  return Object.entries(sessions).map(([id, session]) => ({
+  // MSF returns session IDs as keys, e.g. { "1": { type: "meterpreter", ... } }
+  const sessionMap = response as Record<string, Record<string, string>>;
+
+  return Object.entries(sessionMap).map(([id, session]) => ({
     id: Number(id),
     type: session.type ?? "unknown",
     tunnel: session.tunnel_peer ?? session.tunnel_local ?? "—",
@@ -87,14 +93,21 @@ export async function listWorkspaces() {
   if (config.demoMode) return demoWorkspaces;
 
   const token = await getRpcToken();
-  const workspaces = await rpcCall<Record<string, { created_at?: number }>>(
-    "workspace.list",
-    [],
-    token,
-  );
+  const response = await rpcCall<Record<string, unknown>>("workspace.list", [], token);
+
+  // MSF returns workspaces as either a map { name: { created_at: ... } }
+  // or an array under a "workspaces" key
+  const workspaces = (response.workspaces ?? response) as Record<string, unknown> | unknown[];
+
+  if (Array.isArray(workspaces)) {
+    return (workspaces as { name?: string; created_at?: number }[]).map((w) => ({
+      name: w.name ?? "unknown",
+      created_at: w.created_at,
+    }));
+  }
 
   return Object.entries(workspaces).map(([name, meta]) => ({
     name,
-    created_at: meta.created_at,
+    created_at: (meta as Record<string, number>)?.created_at,
   }));
 }

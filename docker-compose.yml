@@ -12,7 +12,7 @@ services:
     volumes:
       - msf_db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U msf -d msf"]
+      test: ["CMD-SHELL", "pg_isready -U msf -d msf || exit 1"]
       interval: 5s
       timeout: 10s
       retries: 15
@@ -44,11 +44,11 @@ services:
     volumes:
       - msf_payloads:/payloads
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c 'echo > /dev/tcp/127.0.0.1/55553' 2>/dev/null; pgrep -x ruby >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 55553 && pgrep -x ruby >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 60s
+      retries: 15
+      start_period: 90s
     tty: true
 
   # ── Next.js Dashboard ─────────────────────────────────────
@@ -75,13 +75,13 @@ services:
       - msf_payloads:/host-payloads:ro
     depends_on:
       metasploit:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 15s
 
   # ── Caddy Reverse Proxy ────────────────────────────────────
   caddy:

