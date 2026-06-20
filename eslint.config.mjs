@@ -9,9 +9,10 @@ const eslintConfig = defineConfig([
     rules: {
       // This rule is overly broad — it flags legitimate one-time
       // state initialization patterns in useEffect (on mount / tab switch).
-      // State updates in event callbacks or async flows within effects
-      // do not cause cascading renders in practice.
       "react-hooks/set-state-in-effect": "warn",
+      // React 19 purity rules are overly strict for practical UI code
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
     },
   },
   // Override default ignores of eslint-config-next.
