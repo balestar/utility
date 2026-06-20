@@ -52,12 +52,37 @@ async function rawRpcCall(
       socket.write(payload);
     });
 
+    let decodeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryDecode = () => {
+      if (settled) return;
+      const fullBuf = Buffer.concat(chunks);
+      if (fullBuf.length === 0) return;
+      try {
+        const result = msgpackDecode(fullBuf);
+        if (typeof result !== "object" || result === null) {
+          cleanup();
+          reject(new Error("RPC response is not a map"));
+          return;
+        }
+        clearTimeout(timeout);
+        cleanup();
+        resolve(result as Record<string, unknown>);
+      } catch {
+        // Not enough data yet — wait for more
+      }
+    };
+
     socket.on("data", (data) => {
       chunks.push(data);
+      // Schedule decode attempt 150ms after last data chunk (MSF RPC holds socket open)
+      if (decodeTimer) clearTimeout(decodeTimer);
+      decodeTimer = setTimeout(tryDecode, 150);
     });
 
     socket.on("end", () => {
       clearTimeout(timeout);
+      if (decodeTimer) clearTimeout(decodeTimer);
       if (settled) return;
 
       try {
@@ -111,7 +136,7 @@ export async function rpcCall<T>(
   const args = token ? [token, ...params] : params;
   const response = await rawRpcCall(method, args);
 
-  // Check for errors in various MSF error formats
+  // Check for explicit errors in various MSF error formats
   if (response.error === true || response.result === "fail") {
     const msg =
       (response.error_string as string) ||
@@ -122,14 +147,16 @@ export async function rpcCall<T>(
     throw new Error(`MSF RPC error [${code}]: ${msg}`);
   }
 
-  if (response.result !== "success") {
-    // Result might be something else unexpected
+  // Strip metadata-only keys; return everything else as T.
+  // Note: some MSF calls (console.read, job.list) don't include result:"success"
+  // at all — they just return the data map directly. So we only reject if
+  // result is present AND not "success".
+  if ("result" in response && response.result !== "success") {
     throw new Error(
       `MSF RPC unexpected result: ${JSON.stringify(response).slice(0, 200)}`,
     );
   }
 
-  // Strip metadata fields; return everything else as T
   const metaKeys = new Set(["result", "error", "error_class", "error_string", "error_message", "error_code"]);
   const data: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(response)) {

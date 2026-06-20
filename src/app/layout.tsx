@@ -4,6 +4,7 @@ import "./globals.css";
 import { PinLock } from "@/components/pin-lock";
 import { PanicButton } from "@/components/panic-button";
 import { Sidebar } from "@/components/sidebar";
+import { ServiceWorkerRegistrar } from "@/components/sw-registrar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,10 +20,21 @@ export const metadata: Metadata = {
   title: "Utility",
   description: "Remote administration tool",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Utility",
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#09090b",
+  themeColor: "#050508",
+  width: "device-width",
+  initialScale: 1,
+  minimumScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -62,6 +74,7 @@ export default function RootLayout({
             </main>
           </div>
           <PanicButton />
+          <ServiceWorkerRegistrar />
         </PinLock>
       </body>
     </html>
