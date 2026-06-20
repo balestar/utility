@@ -38,6 +38,21 @@ const navItems = [
     badgeColor: "text-green-400 border-green-800/60",
   },
   {
+    section: "INTELLIGENCE",
+  },
+  {
+    label: "ALL DEVICES",
+    href: "/devices",
+    icon: <DevicesIcon />,
+    badge: "RT",
+    badgeColor: "text-green-400 border-green-800/60",
+  },
+  {
+    label: "FILE VAULT",
+    href: "/vault",
+    icon: <VaultIcon />,
+  },
+  {
     section: "TOOLS",
   },
   {
@@ -72,6 +87,21 @@ const navItems = [
   },
 ];
 
+function DevicesIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/>
+    </svg>
+  );
+}
+function VaultIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+      <circle cx="12" cy="10" r="3"/>
+    </svg>
+  );
+}
 function ConsoleIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
