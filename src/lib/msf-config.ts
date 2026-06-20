@@ -11,12 +11,13 @@ export function getMsfConfig(): MsfConfig {
   const explicitDemo = process.env.MSF_DEMO_MODE;
   const host = process.env.MSF_RPC_HOST ?? "127.0.0.1";
 
-  // Auto-enable demo mode when:
-  // - MSF_DEMO_MODE=true, or
-  // - MSF_RPC_HOST is not set and we're not in Docker (NODE_ENV != production)
+  // Demo mode logic:
+  // - MSF_DEMO_MODE=true  → always demo
+  // - MSF_DEMO_MODE=false → always live (even in dev)
+  // - MSF_DEMO_MODE unset → demo only in dev (not in production/docker)
   const demoMode =
     explicitDemo === "true" ||
-    (explicitDemo === undefined && process.env.NODE_ENV !== "production");
+    (explicitDemo !== "false" && explicitDemo === undefined && process.env.NODE_ENV !== "production");
 
   return {
     host,

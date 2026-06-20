@@ -1,132 +1,68 @@
 /**
- * Metasploit RPC client using MessagePack protocol over raw TCP.
+ * Metasploit RPC client — MessagePack over HTTP POST (MSF v6+)
  *
- * MSFRPCD listens on port 55553 by default.
- * Protocol: send a MessagePack-encoded array [method, ...args],
- *            receive a MessagePack-encoded map/dict back.
+ * Protocol: POST http(s)://host:port/api/1.0
+ *   Content-Type: binary/message-pack
+ *   Body:         MessagePack-encoded [method, ...args]
+ *   Response:     MessagePack-encoded map
  *
  * MSF RPC response shape:
  *   Success: { "result": "success", <data fields>... }
  *   Error:   { "error": true, "error_class": "...", "error_string": "..." }
- *            or { "result": "fail", "error_message": "..." }
- *
- * All calls happen server-side via Node.js net module.
  */
 
 import { getMsfConfig } from "./msf-config";
-import * as net from "net";
 import { msgpackEncode, msgpackDecode } from "./msgpack";
 
 let cachedToken: string | null = null;
 let tokenExpiry = 0;
 
 /**
- * Sends a MessagePack RPC call over TCP to the Metasploit RPC server.
- * Returns the raw decoded response (a map object).
+ * Send a MessagePack-encoded RPC call via HTTP POST.
  */
 async function rawRpcCall(
   method: string,
   args: unknown[] = [],
 ): Promise<Record<string, unknown>> {
   const config = getMsfConfig();
+  const scheme = config.ssl ? "https" : "http";
+  const url = `${scheme}://${config.host}:${config.port}/api/1.0`;
 
-  return new Promise((resolve, reject) => {
-    const socket = new net.Socket();
-    const chunks: Buffer[] = [];
-    let settled = false;
+  const encoded = msgpackEncode([method, ...args]);
+  // Copy into a fresh ArrayBuffer for strict fetch body compatibility
+  const body = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength) as ArrayBuffer;
 
-    const cleanup = () => {
-      settled = true;
-      socket.destroy();
-    };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
 
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        cleanup();
-        reject(new Error("RPC socket timeout after 15s"));
-      }
-    }, 15000);
-
-    socket.connect(config.port, config.host, () => {
-      const payload = msgpackEncode([method, ...args]);
-      socket.write(payload);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "binary/message-pack" },
+      body,
+      signal: controller.signal,
     });
+  } finally {
+    clearTimeout(timeout);
+  }
 
-    let decodeTimer: ReturnType<typeof setTimeout> | null = null;
+  if (!res.ok) {
+    throw new Error(`MSF RPC HTTP ${res.status}: ${res.statusText}`);
+  }
 
-    const tryDecode = () => {
-      if (settled) return;
-      const fullBuf = Buffer.concat(chunks);
-      if (fullBuf.length === 0) return;
-      try {
-        const result = msgpackDecode(fullBuf);
-        if (typeof result !== "object" || result === null) {
-          cleanup();
-          reject(new Error("RPC response is not a map"));
-          return;
-        }
-        clearTimeout(timeout);
-        cleanup();
-        resolve(result as Record<string, unknown>);
-      } catch {
-        // Not enough data yet — wait for more
-      }
-    };
+  const buf = await res.arrayBuffer();
+  const result = msgpackDecode(Buffer.from(buf));
 
-    socket.on("data", (data) => {
-      chunks.push(data);
-      // Schedule decode attempt 150ms after last data chunk (MSF RPC holds socket open)
-      if (decodeTimer) clearTimeout(decodeTimer);
-      decodeTimer = setTimeout(tryDecode, 150);
-    });
+  if (typeof result !== "object" || result === null) {
+    throw new Error("MSF RPC response is not a map");
+  }
 
-    socket.on("end", () => {
-      clearTimeout(timeout);
-      if (decodeTimer) clearTimeout(decodeTimer);
-      if (settled) return;
-
-      try {
-        const fullBuf = Buffer.concat(chunks);
-        if (fullBuf.length === 0) {
-          cleanup();
-          reject(new Error("Empty RPC response"));
-          return;
-        }
-        const result = msgpackDecode(fullBuf);
-        if (typeof result !== "object" || result === null) {
-          cleanup();
-          reject(new Error("RPC response is not a map"));
-          return;
-        }
-        cleanup();
-        resolve(result as Record<string, unknown>);
-      } catch (err) {
-        cleanup();
-        reject(
-          new Error(
-            `Failed to decode RPC response: ${err instanceof Error ? err.message : "unknown"}`,
-          ),
-        );
-      }
-    });
-
-    socket.on("error", (err) => {
-      clearTimeout(timeout);
-      if (!settled) {
-        cleanup();
-        reject(new Error(`RPC socket error: ${err.message}`));
-      }
-    });
-  });
+  return result as Record<string, unknown>;
 }
 
 /**
- * Authenticated RPC call. Automatically acquires and manages the API token.
- *
- * MSF RPC returns: { "result": "success", <actual data keys>... }
- * or error:        { "error": true, "error_class": "...", "error_string": "..." }
- *
- * This strips the metadata fields and returns the rest as the result.
+ * Authenticated RPC call — auto-acquires and caches the session token.
  */
 export async function rpcCall<T>(
   method: string,
@@ -136,43 +72,36 @@ export async function rpcCall<T>(
   const args = token ? [token, ...params] : params;
   const response = await rawRpcCall(method, args);
 
-  // Check for explicit errors in various MSF error formats
+  // Explicit error formats
   if (response.error === true || response.result === "fail") {
     const msg =
       (response.error_string as string) ||
       (response.error_message as string) ||
       (response.error_class as string) ||
       "Unknown MSF RPC error";
-    const code = (response.error_code as number) ?? -1;
-    throw new Error(`MSF RPC error [${code}]: ${msg}`);
+    throw new Error(`MSF RPC error: ${msg}`);
   }
 
-  // Strip metadata-only keys; return everything else as T.
-  // Note: some MSF calls (console.read, job.list) don't include result:"success"
-  // at all — they just return the data map directly. So we only reject if
-  // result is present AND not "success".
+  // Some calls (console.read, job.list) don't include result:"success" —
+  // they just return the data map directly. Only reject if result is present
+  // AND not "success".
   if ("result" in response && response.result !== "success") {
     throw new Error(
       `MSF RPC unexpected result: ${JSON.stringify(response).slice(0, 200)}`,
     );
   }
 
+  // Strip metadata keys; return data as T
   const metaKeys = new Set(["result", "error", "error_class", "error_string", "error_message", "error_code"]);
   const data: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(response)) {
-    if (!metaKeys.has(key)) {
-      data[key] = value;
-    }
+    if (!metaKeys.has(key)) data[key] = value;
   }
-
   return data as unknown as T;
 }
 
 /**
- * Authenticate and get a session token. Cached for 5 minutes.
- *
- * MSF auth.login response:
- *   { "result": "success", "token": "abc123" }
+ * Authenticate and get a session token — cached for 5 minutes.
  */
 export async function getRpcToken(): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiry) {
@@ -180,24 +109,17 @@ export async function getRpcToken(): Promise<string> {
   }
 
   const config = getMsfConfig();
+  const response = await rawRpcCall("auth.login", [config.user, config.password]);
 
-  const response = await rawRpcCall("auth.login", [
-    config.user,
-    config.password,
-  ]);
-
-  // Check for authentication errors
   if (response.error === true) {
     throw new Error(
-      `MSF auth error: ${response.error_string || response.error_class || "authentication failed"}`,
+      `MSF auth failed: ${response.error_string || response.error_class || "bad credentials"}`,
     );
   }
 
   const token = response.token as string | undefined;
   if (!token) {
-    throw new Error(
-      `MSF auth returned no token. Response: ${JSON.stringify(response).slice(0, 200)}`,
-    );
+    throw new Error(`MSF auth returned no token. Response: ${JSON.stringify(response).slice(0, 200)}`);
   }
 
   cachedToken = token;
@@ -205,9 +127,6 @@ export async function getRpcToken(): Promise<string> {
   return cachedToken;
 }
 
-/**
- * Force re-auth on next call.
- */
 export function invalidateToken(): void {
   cachedToken = null;
   tokenExpiry = 0;
