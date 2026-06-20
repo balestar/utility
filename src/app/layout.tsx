@@ -41,12 +41,24 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="application-name" content="Utility" />
       </head>
-      <body className="flex min-h-full bg-zinc-950">
+      <body className="flex h-full overflow-hidden bg-[#050508]">
         <PinLock>
-          <div className="flex w-full">
+          <div className="flex h-full w-full overflow-hidden">
             <Sidebar />
-            <main className="min-h-screen flex-1 overflow-x-hidden p-6 pt-20 md:pt-6">
-              {children}
+            <main className="flex flex-1 flex-col overflow-hidden">
+              {/* Top bar */}
+              <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/[0.04] bg-[#06060c] px-5 md:px-6">
+                <span className="font-mono text-[9px] uppercase tracking-widest text-slate-700">
+                  UTILITY · COMMAND CENTER
+                </span>
+                <div className="flex items-center gap-3">
+                  <span className="h-1 w-1 rounded-full bg-green-500 status-pulse" />
+                  <span className="text-[9px] uppercase tracking-widest text-slate-700">SECURE</span>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto p-4 pt-16 md:pt-4">
+                {children}
+              </div>
             </main>
           </div>
           <PanicButton />

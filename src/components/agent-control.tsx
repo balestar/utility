@@ -30,506 +30,558 @@ type C2Result = {
   error?: string;
 };
 
-const CATEGORY_ICONS: Record<string, string> = {
-  System: "⚙",
-  Filesystem: "📁",
-  Process: "⚡",
-  Network: "🌐",
-  Credentials: "🔑",
-  Surveillance: "📷",
-  Persistence: "🔄",
-  PrivEsc: "⬆",
-  Shell: "💻",
-  Exfil: "📤",
+type HistoryEntry = {
+  cmd: string;
+  result: C2Result;
+  ts: string;
+  sessionId: number;
 };
+
+const CAT_COLOR: Record<string, string> = {
+  System:       "border-slate-700/60 text-slate-400",
+  Filesystem:   "border-blue-800/50 text-blue-400",
+  Process:      "border-purple-800/50 text-purple-400",
+  Network:      "border-cyan-800/50 text-cyan-400",
+  Credentials:  "border-red-800/60 text-red-400",
+  Surveillance: "border-amber-800/50 text-amber-400",
+  Persistence:  "border-orange-800/50 text-orange-400",
+  PrivEsc:      "border-pink-800/50 text-pink-400",
+  Shell:        "border-green-800/50 text-green-400",
+  Exfil:        "border-red-800/60 text-red-400",
+};
+
+const DANGER_CATS = new Set(["Credentials", "PrivEsc", "Exfil", "Surveillance"]);
 
 export function AgentControl() {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [commands, setCommands] = useState<C2Command[]>([]);
   const [grouped, setGrouped] = useState<Record<string, C2Command[]>>({});
-  const [selectedSession, setSelectedSession] = useState<AgentSession | null>(null);
+  const [selected, setSelected] = useState<AgentSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [executing, setExecuting] = useState(false);
-  const [result, setResult] = useState<C2Result | null>(null);
-  const [customCmd, setCustomCmd] = useState("");
+  const [activeCmd, setActiveCmd] = useState<C2Command | null>(null);
   const [paramValue, setParamValue] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<string>("All");
-  const [activeSubTab, setActiveSubTab] = useState<"sessions" | "commands" | "console">("sessions");
-  const [history, setHistory] = useState<{cmd: string; result: C2Result; timestamp: string}[]>([]);
+  const [customCmd, setCustomCmd] = useState("");
+  const [output, setOutput] = useState<string>("");
+  const [outputOk, setOutputOk] = useState(true);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [category, setCategory] = useState("All");
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState<"commands" | "console" | "history" | "info">("commands");
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const outputRef = useRef<HTMLPreElement>(null);
-  const refreshInterval = useRef<ReturnType<typeof setInterval>>(undefined);
-  const nowRef = useRef(Date.now());
+  const termRef = useRef<HTMLDivElement>(null);
+  const paramRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const timer = setInterval(() => { nowRef.current = Date.now(); }, 30000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Fetch sessions
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch("/api/agents?action=sessions");
       const data = await res.json();
       if (data.sessions) setSessions(data.sessions);
-    } catch { /* ignore */ }
+    } catch { /* silent */ }
   }, []);
 
-  // Fetch commands
   useEffect(() => {
-    async function load() {
+    async function init() {
       try {
         const [cmdRes, sessRes] = await Promise.all([
           fetch("/api/agents?action=commands"),
           fetch("/api/agents?action=sessions"),
         ]);
-        const cmdData = await cmdRes.json();
-        const sessData = await sessRes.json();
+        const [cmdData, sessData] = await Promise.all([cmdRes.json(), sessRes.json()]);
         if (cmdData.commands) setCommands(cmdData.commands);
         if (cmdData.grouped) setGrouped(cmdData.grouped);
         if (sessData.sessions) setSessions(sessData.sessions);
-      } catch { /* ignore */ }
+      } catch { /* silent */ }
       setLoading(false);
     }
-    load();
+    init();
   }, []);
 
-  // Auto-refresh
   useEffect(() => {
     if (!autoRefresh) return;
-    refreshInterval.current = setInterval(fetchSessions, 5000);
-    return () => clearInterval(refreshInterval.current);
+    const t = setInterval(fetchSessions, 5000);
+    return () => clearInterval(t);
   }, [autoRefresh, fetchSessions]);
 
-  // Scroll output on new result
   useEffect(() => {
-    if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    if (termRef.current) {
+      termRef.current.scrollTop = termRef.current.scrollHeight;
     }
-  }, [result, history]);
+  }, [output, history]);
 
-  const handleExecute = async (cmd: C2Command) => {
-    if (!selectedSession) return;
+  // When a command that needs params is selected, focus the input
+  useEffect(() => {
+    if (activeCmd?.needsParam && paramRef.current) {
+      paramRef.current.focus();
+    }
+  }, [activeCmd]);
+
+  const runCommand = async (cmd: C2Command, param?: string) => {
+    if (!selected) return;
     setExecuting(true);
-    setResult(null);
+    setOutput("");
+
+    const label = param ? `${cmd.name} ${param}` : cmd.name;
 
     try {
-      const param = cmd.needsParam ? paramValue : undefined;
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "execute",
-          sessionId: selectedSession.id,
+          sessionId: selected.id,
           commandId: cmd.id,
           param,
         }),
       });
-      const data = await res.json();
-      setResult(data);
-      setHistory((prev) => [
-        { cmd: `${cmd.name}${param ? " " + param : ""}`, result: data, timestamp: new Date().toISOString() },
-        ...prev,
-      ]);
+      const data: C2Result = await res.json();
+      setOutput(data.error ? data.error : data.output);
+      setOutputOk(data.success);
+      setHistory(h => [{ cmd: label, result: data, ts: new Date().toISOString(), sessionId: selected.id }, ...h].slice(0, 50));
     } catch {
-      const err = { success: false, output: "", error: "Failed to execute command" };
-      setResult(err);
+      setOutput("Network error — could not reach server");
+      setOutputOk(false);
     } finally {
       setExecuting(false);
       setParamValue("");
+      setActiveCmd(null);
+      setView("console");
     }
   };
 
-  const handleCustomCommand = async () => {
-    if (!selectedSession || !customCmd.trim()) return;
+  const runCustom = async () => {
+    if (!selected || !customCmd.trim()) return;
     setExecuting(true);
-    setResult(null);
+    const cmd = customCmd.trim();
+    setCustomCmd("");
+    setOutput("");
 
     try {
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "custom",
-          sessionId: selectedSession.id,
-          command: customCmd,
-        }),
+        body: JSON.stringify({ action: "custom", sessionId: selected.id, command: cmd }),
       });
-      const data = await res.json();
-      setResult(data);
-      setHistory((prev) => [
-        { cmd: customCmd, result: data, timestamp: new Date().toISOString() },
-        ...prev,
-      ]);
+      const data: C2Result = await res.json();
+      setOutput(data.error ? data.error : data.output);
+      setOutputOk(data.success);
+      setHistory(h => [{ cmd, result: data, ts: new Date().toISOString(), sessionId: selected.id! }, ...h].slice(0, 50));
     } catch {
-      const err = { success: false, output: "", error: "Failed to execute command" };
-      setResult(err);
+      setOutput("Network error");
+      setOutputOk(false);
     } finally {
       setExecuting(false);
-      setCustomCmd("");
     }
   };
 
-  // Filter commands
-  const filteredCommands = activeCategory === "All"
-    ? commands
-    : (grouped[activeCategory] || []);
+  const onCmdClick = (cmd: C2Command) => {
+    if (!selected) return;
+    if (cmd.needsParam) {
+      setActiveCmd(cmd);
+      setParamValue("");
+      setView("commands");
+    } else {
+      runCommand(cmd);
+    }
+  };
 
-  const searchedCommands = searchQuery
-    ? filteredCommands.filter((c) =>
-        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.category.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : filteredCommands;
+  const cats = Object.keys(grouped);
+  const filteredCmds = (category === "All" ? commands : grouped[category] || []).filter(c =>
+    !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.description.toLowerCase().includes(search.toLowerCase())
+  );
 
-  // Command count per category
-  const categories = Object.keys(grouped);
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="flex items-center gap-3 text-sm text-slate-500">
+          <span className="h-4 w-4 animate-spin rounded-full border border-slate-700 border-t-red-500" />
+          INITIALIZING...
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-7xl">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Agent Control (C2)</h1>
-        <p className="mt-1 text-sm text-zinc-500">Command &amp; control interface — send post-exploitation commands to active sessions</p>
+    <div className="flex h-[calc(100vh-48px)] gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-[#08080e]">
+
+      {/* ── PANEL 1: Session List ── */}
+      <div className="flex w-[220px] shrink-0 flex-col border-r border-white/[0.05]">
+        <div className="flex items-center justify-between border-b border-white/[0.05] px-4 py-3">
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-slate-500">
+            Agents <span className="ml-1 tabular-nums text-red-500">{sessions.length}</span>
+          </span>
+          <label className="flex cursor-pointer items-center gap-1.5 text-[9px] uppercase tracking-wider text-slate-600">
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="h-2.5 w-2.5 accent-red-500" />
+            Auto
+          </label>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {sessions.length === 0 && (
+            <div className="mt-4 rounded border border-dashed border-white/[0.06] p-4 text-center">
+              <p className="text-[10px] uppercase tracking-wider text-slate-600">No agents</p>
+              <p className="mt-1 text-[9px] text-slate-700">Start a listener to catch sessions</p>
+            </div>
+          )}
+          {sessions.map(sess => {
+            const isSelected = selected?.id === sess.id;
+            const online = Date.now() - new Date(sess.lastSeen).getTime() < 120000;
+            return (
+              <button
+                key={sess.id}
+                type="button"
+                onClick={() => { setSelected(sess); setOutput(""); setActiveCmd(null); }}
+                className={`mb-1 w-full rounded border p-3 text-left transition-all ${
+                  isSelected
+                    ? "border-red-800/60 bg-red-950/20"
+                    : "border-transparent hover:border-white/[0.06] hover:bg-white/[0.03]"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-1.5 w-1.5 rounded-full ${online ? "bg-green-500 status-pulse" : "bg-slate-600"}`} />
+                    <span className="font-mono text-[11px] font-semibold text-red-400">#{sess.id}</span>
+                  </div>
+                  <span className="rounded border border-white/[0.06] px-1 py-px text-[8px] uppercase tracking-wider text-slate-500">
+                    {sess.type}
+                  </span>
+                </div>
+                <p className="mt-1.5 truncate text-[11px] text-slate-300">{sess.info}</p>
+                <p className="mt-0.5 truncate text-[9px] text-slate-600">{sess.platform || "unknown"}</p>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-red-500" />
-        </div>
-      ) : (
-        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-          {/* ── LEFT: Sessions List ── */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
-                Agents ({sessions.length})
-              </h2>
-              <label className="flex items-center gap-2 text-xs text-zinc-600">
-                <input
-                  type="checkbox"
-                  checked={autoRefresh}
-                  onChange={(e) => setAutoRefresh(e.target.checked)}
-                  className="accent-red-500"
-                />
-                Auto
-              </label>
-            </div>
-
-            <div className="space-y-2">
-              {sessions.length === 0 && (
-                <p className="rounded-xl border border-dashed border-zinc-800 p-4 text-center text-sm text-zinc-600">
-                  No active sessions
-                </p>
-              )}
-              {sessions.map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  onClick={() => { setSelectedSession(session); setActiveSubTab("commands"); setResult(null); }}
-                  className={`w-full rounded-xl border p-4 text-left transition ${
-                    selectedSession?.id === session.id
-                      ? "border-red-700 bg-red-900/10"
-                      : "border-zinc-800 bg-zinc-950/80 hover:border-zinc-700"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${
-                        nowRef.current - new Date(session.lastSeen).getTime() < 60000
-                          ? "bg-emerald-500"
-                          : "bg-zinc-600"
-                      }`} />
-                      <span className="font-mono text-sm text-red-400">#{session.id}</span>
-                    </div>
-                    <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] uppercase text-zinc-500">
-                      {session.type}
-                    </span>
-                  </div>
-                  <p className="mt-1.5 truncate text-sm text-zinc-300">{session.info}</p>
-                  <p className="mt-0.5 text-xs text-zinc-600">
-                    {session.platform || "unknown"} · {session.workspace}
-                  </p>
-                </button>
-              ))}
-            </div>
+      {/* ── PANEL 2: Commands ── */}
+      <div className="flex w-[280px] shrink-0 flex-col border-r border-white/[0.05]">
+        <div className="border-b border-white/[0.05] px-3 py-3">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search commands..."
+            className="w-full rounded border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[11px] text-slate-300 placeholder-slate-600 focus:border-red-800/50 focus:outline-none"
+          />
+          <div className="mt-2 flex flex-wrap gap-1">
+            <button
+              type="button"
+              onClick={() => setCategory("All")}
+              className={`rounded px-2 py-0.5 text-[9px] uppercase tracking-wider transition ${
+                category === "All" ? "bg-red-600 text-white" : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              ALL
+            </button>
+            {cats.map(cat => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategory(cat)}
+                className={`rounded px-2 py-0.5 text-[9px] uppercase tracking-wider transition ${
+                  category === cat ? "bg-red-600 text-white" : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
           </div>
+        </div>
 
-          {/* ── RIGHT: Command Panel ── */}
-          <div className="space-y-4">
-            {/* Sub-tabs */}
-            <div className="flex gap-2 border-b border-zinc-800 pb-3">
-              {(["sessions", "commands", "console"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveSubTab(tab)}
-                  className={`rounded-lg px-4 py-1.5 text-sm capitalize transition ${
-                    activeSubTab === tab
-                      ? "bg-red-600 text-white"
-                      : "text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {tab === "sessions" ? "Details" : tab}
-                </button>
-              ))}
-            </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {!selected ? (
+            <p className="mt-8 text-center text-[10px] uppercase tracking-wider text-slate-700">
+              Select an agent first
+            </p>
+          ) : (
+            filteredCmds.map(cmd => {
+              const isActive = activeCmd?.id === cmd.id;
+              const isDanger = DANGER_CATS.has(cmd.category);
+              const catColor = CAT_COLOR[cmd.category] || "border-slate-700/60 text-slate-400";
 
-            {!selectedSession && (
-              <div className="flex items-center justify-center py-20">
-                <p className="text-sm text-zinc-600">Select an agent from the list to begin</p>
-              </div>
-            )}
-
-            {selectedSession && activeSubTab === "sessions" && (
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-6">
-                <h2 className="text-lg font-semibold text-white">Session #{selectedSession.id}</h2>
-                <div className="mt-4 space-y-3 text-sm">
-                  <div className="flex justify-between rounded-xl border border-zinc-800 bg-black/40 px-4 py-3">
-                    <span className="text-zinc-500">Type</span>
-                    <span className="text-zinc-200">{selectedSession.type}</span>
-                  </div>
-                  <div className="flex justify-between rounded-xl border border-zinc-800 bg-black/40 px-4 py-3">
-                    <span className="text-zinc-500">Platform</span>
-                    <span className="text-zinc-200">{selectedSession.platform || "unknown"}</span>
-                  </div>
-                  <div className="flex justify-between rounded-xl border border-zinc-800 bg-black/40 px-4 py-3">
-                    <span className="text-zinc-500">Architecture</span>
-                    <span className="text-zinc-200">{selectedSession.arch || "unknown"}</span>
-                  </div>
-                  <div className="flex justify-between rounded-xl border border-zinc-800 bg-black/40 px-4 py-3">
-                    <span className="text-zinc-500">Connection</span>
-                    <span className="font-mono text-xs text-zinc-200">{selectedSession.tunnel}</span>
-                  </div>
-                  <div className="flex justify-between rounded-xl border border-zinc-800 bg-black/40 px-4 py-3">
-                    <span className="text-zinc-500">Exploit</span>
-                    <span className="font-mono text-xs text-zinc-200">{selectedSession.via}</span>
-                  </div>
-                  <div className="flex justify-between rounded-xl border border-zinc-800 bg-black/40 px-4 py-3">
-                    <span className="text-zinc-500">Workspace</span>
-                    <span className="text-zinc-200">{selectedSession.workspace}</span>
-                  </div>
-                  <div className="flex justify-between rounded-xl border border-zinc-800 bg-black/40 px-4 py-3">
-                    <span className="text-zinc-500">Last Seen</span>
-                    <span className="text-zinc-200">{new Date(selectedSession.lastSeen).toLocaleString()}</span>
-                  </div>
-                </div>
-
-                <div className="mt-6 grid grid-cols-2 gap-3">
+              return (
+                <div key={cmd.id} className="mb-1.5">
                   <button
                     type="button"
-                    onClick={() => handleExecute(getCommandById(commands, "sysinfo")!)}
                     disabled={executing}
-                    className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+                    onClick={() => onCmdClick(cmd)}
+                    className={`w-full rounded border p-3 text-left transition-all disabled:opacity-40 ${
+                      isActive
+                        ? "border-red-700/60 bg-red-950/20"
+                        : isDanger
+                          ? "border-red-900/30 bg-red-950/10 hover:border-red-800/50 hover:bg-red-950/20"
+                          : "border-white/[0.04] hover:border-white/[0.10] hover:bg-white/[0.03]"
+                    }`}
                   >
-                    Get System Info
+                    <div className="flex items-start justify-between gap-2">
+                      <code className={`font-mono text-[11px] font-semibold leading-none ${isDanger ? "text-red-400" : "text-slate-200"}`}>
+                        {cmd.name}
+                      </code>
+                      <span className={`shrink-0 rounded border px-1 py-px text-[8px] uppercase ${catColor}`}>
+                        {cmd.category}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[9px] leading-relaxed text-slate-500">{cmd.description}</p>
+                    {cmd.needsParam && (
+                      <span className="mt-1 inline-block text-[9px] uppercase tracking-wider text-amber-600">
+                        requires input ›
+                      </span>
+                    )}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExecute(getCommandById(commands, "getuid")!)}
-                    disabled={executing}
-                    className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50"
-                  >
-                    Get User
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExecute(getCommandById(commands, "ps")!)}
-                    disabled={executing}
-                    className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50"
-                  >
-                    List Processes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExecute(getCommandById(commands, "ifconfig")!)}
-                    disabled={executing}
-                    className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50"
-                  >
-                    Network Info
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExecute(getCommandById(commands, "hashdump")!)}
-                    disabled={executing}
-                    className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-900/30 hover:text-red-300 disabled:opacity-50"
-                  >
-                    Hash Dump
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExecute(getCommandById(commands, "screenshot")!)}
-                    disabled={executing}
-                    className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50"
-                  >
-                    Screenshot
-                  </button>
-                </div>
-              </div>
-            )}
 
-            {selectedSession && activeSubTab === "commands" && (
-              <div className="space-y-4">
-                {/* Search & Category filter */}
-                <div className="flex flex-wrap gap-3">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search commands..."
-                    className="flex-1 rounded-xl border border-zinc-800 bg-black/50 px-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-red-700 focus:outline-none min-w-[200px]"
-                  />
-                  <select
-                    value={activeCategory}
-                    onChange={(e) => setActiveCategory(e.target.value)}
-                    className="rounded-xl border border-zinc-800 bg-black/50 px-4 py-2.5 text-sm text-zinc-200 focus:border-red-700 focus:outline-none"
-                  >
-                    <option value="All">All Categories</option>
-                    {categories.map((cat) => (
-                      <option key={cat} value={cat}>{cat} ({grouped[cat]?.length || 0})</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Command grid */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {searchedCommands.map((cmd) => (
-                    <button
-                      key={cmd.id}
-                      type="button"
-                      disabled={executing}
-                      onClick={() => {
-                        if (cmd.needsParam) {
-                          const p = prompt(`${cmd.paramLabel || "Enter value"}:`, cmd.paramPlaceholder || "");
-                          if (p !== null) {
-                            setParamValue(p);
-                            handleExecute(cmd);
-                          }
-                        } else {
-                          handleExecute(cmd);
-                        }
-                      }}
-                      className="group rounded-xl border border-zinc-800 bg-zinc-950/80 p-4 text-left transition hover:border-zinc-700 hover:bg-zinc-900/80 disabled:opacity-50"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{CATEGORY_ICONS[cmd.category] || "▸"}</span>
-                        <code className="text-sm font-mono text-red-400 group-hover:text-red-300">{cmd.name}</code>
+                  {/* Inline param input — expands when command is active */}
+                  {isActive && cmd.needsParam && (
+                    <div className="mt-1 rounded border border-red-800/40 bg-red-950/10 p-3">
+                      <label className="mb-1 block text-[9px] uppercase tracking-wider text-red-400">
+                        {cmd.paramLabel || "Parameter"}
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          ref={paramRef}
+                          type="text"
+                          value={paramValue}
+                          onChange={e => setParamValue(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") runCommand(cmd, paramValue); if (e.key === "Escape") setActiveCmd(null); }}
+                          placeholder={cmd.paramPlaceholder || "Enter value..."}
+                          className="flex-1 rounded border border-red-800/40 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-red-700/50"
+                        />
+                        <button
+                          type="button"
+                          disabled={executing}
+                          onClick={() => runCommand(cmd, paramValue)}
+                          className="rounded border border-red-700/60 bg-red-700/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-red-400 transition hover:bg-red-700/30 disabled:opacity-40"
+                        >
+                          RUN
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveCmd(null)}
+                          className="rounded border border-white/[0.06] px-2 text-[10px] text-slate-600 transition hover:text-slate-400"
+                        >
+                          ✕
+                        </button>
                       </div>
-                      <p className="mt-1.5 text-xs text-zinc-500 line-clamp-2">{cmd.description}</p>
-                      {cmd.needsParam && (
-                        <span className="mt-1.5 inline-block rounded bg-red-900/20 px-1.5 py-0.5 text-[10px] text-red-400">
-                          needs input
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                  {searchedCommands.length === 0 && (
-                    <p className="col-span-full py-8 text-center text-sm text-zinc-600">
-                      {searchQuery ? "No commands match your search" : "No commands in this category"}
-                    </p>
+                    </div>
                   )}
                 </div>
-              </div>
+              );
+            })
+          )}
+          {selected && filteredCmds.length === 0 && (
+            <p className="mt-8 text-center text-[10px] uppercase tracking-wider text-slate-700">No commands found</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── PANEL 3: Terminal / Output ── */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Tabs */}
+        <div className="flex items-center gap-1 border-b border-white/[0.05] px-4 py-2">
+          {(["console", "history", "info"] as const).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setView(tab)}
+              className={`rounded px-3 py-1 text-[10px] font-semibold uppercase tracking-wider transition ${
+                view === tab
+                  ? "bg-white/[0.07] text-slate-200"
+                  : "text-slate-600 hover:text-slate-400"
+              }`}
+            >
+              {tab}
+              {tab === "history" && history.length > 0 && (
+                <span className="ml-1.5 rounded bg-slate-800 px-1 py-px text-[8px] text-slate-400">
+                  {history.length}
+                </span>
+              )}
+            </button>
+          ))}
+
+          <div className="ml-auto flex items-center gap-3">
+            {selected && (
+              <span className="rounded border border-white/[0.06] px-2 py-0.5 font-mono text-[9px] text-slate-500">
+                session:{selected.id} · {selected.platform || "?"} · {selected.type}
+              </span>
             )}
-
-            {selectedSession && activeSubTab === "console" && (
-              <div className="space-y-4">
-                {/* Custom command input */}
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={customCmd}
-                    onChange={(e) => setCustomCmd(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleCustomCommand(); }}
-                    placeholder="Type any meterpreter command..."
-                    className="flex-1 rounded-xl border border-zinc-800 bg-black/50 px-4 py-2.5 font-mono text-sm text-zinc-200 placeholder-zinc-600 focus:border-red-700 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCustomCommand}
-                    disabled={executing || !customCmd.trim()}
-                    className="rounded-xl bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {executing ? "..." : "Send"}
-                  </button>
-                </div>
-
-                {/* Output */}
-                {result && (
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className={`text-xs font-semibold uppercase tracking-wider ${
-                        result.success ? "text-emerald-500" : "text-red-500"
-                      }`}>
-                        {result.success ? "Success" : "Error"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setResult(null)}
-                        className="text-xs text-zinc-600 hover:text-zinc-400"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                    {result.error && (
-                      <p className="mb-2 text-sm text-red-400">{result.error}</p>
-                    )}
-                    <pre
-                      ref={outputRef}
-                      className="max-h-96 overflow-auto rounded-xl bg-black p-4 font-mono text-xs leading-relaxed text-emerald-400/90 whitespace-pre-wrap"
-                    >
-                      {result.output}
-                    </pre>
-                  </div>
-                )}
-
-                {/* History */}
-                {history.length > 0 && (
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Command History</h3>
-                      <button
-                        type="button"
-                        onClick={() => setHistory([])}
-                        className="text-xs text-zinc-600 hover:text-zinc-400"
-                      >
-                        Clear All
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      {history.map((entry, i) => (
-                        <div key={i} className="rounded-xl border border-zinc-800 bg-black/40 p-3">
-                          <div className="flex items-center justify-between">
-                            <code className="text-sm text-red-400">{entry.cmd}</code>
-                            <span className="text-[10px] text-zinc-700">
-                              {new Date(entry.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          {entry.result.error && (
-                            <p className="mt-1 text-xs text-red-400">{entry.result.error}</p>
-                          )}
-                          {entry.result.output && (
-                            <pre className="mt-1 max-h-20 overflow-hidden text-ellipsis text-xs text-zinc-500">
-                              {entry.result.output.slice(0, 200)}
-                              {entry.result.output.length > 200 ? "..." : ""}
-                            </pre>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+            {executing && (
+              <span className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-amber-400">
+                <span className="h-1.5 w-1.5 animate-spin rounded-full border border-amber-400 border-t-transparent" />
+                Executing
+              </span>
             )}
           </div>
         </div>
-      )}
+
+        {/* Console View */}
+        {view === "console" && (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Output terminal */}
+            <div
+              ref={termRef}
+              className="flex-1 overflow-auto bg-[#04040a] p-5 font-mono text-[12px] leading-relaxed"
+            >
+              {!selected && (
+                <p className="text-slate-600">
+                  <span className="text-red-500">›</span> Select an agent from the session list to begin{" "}
+                  <span className="cursor-blink" />
+                </p>
+              )}
+              {selected && !output && !executing && (
+                <p className="text-slate-600">
+                  <span className="text-green-500">›</span> Session {selected.id} ready. Select a command or type below{" "}
+                  <span className="cursor-blink" />
+                </p>
+              )}
+              {executing && (
+                <p className="text-amber-400">
+                  <span className="text-amber-500">›</span> Executing command... please wait
+                </p>
+              )}
+              {output && !executing && (
+                <div>
+                  <p className={`mb-3 text-[10px] uppercase tracking-wider ${outputOk ? "text-green-600" : "text-red-600"}`}>
+                    {outputOk ? "— success —" : "— error —"}
+                  </p>
+                  <pre className={`whitespace-pre-wrap break-words ${outputOk ? "text-green-400" : "text-red-400"}`}>
+                    {output}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            {/* Custom command input */}
+            <div className="shrink-0 border-t border-white/[0.05] p-3">
+              <div className="flex items-center gap-2 rounded border border-white/[0.06] bg-black/40 px-3 py-2">
+                <span className="font-mono text-[11px] text-green-600">mtr &gt;</span>
+                <input
+                  type="text"
+                  value={customCmd}
+                  onChange={e => setCustomCmd(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") runCustom(); }}
+                  disabled={!selected || executing}
+                  placeholder={selected ? "Type any meterpreter command..." : "Select a session first..."}
+                  className="flex-1 bg-transparent font-mono text-[12px] text-slate-200 placeholder-slate-700 focus:outline-none disabled:cursor-not-allowed"
+                />
+                <button
+                  type="button"
+                  onClick={runCustom}
+                  disabled={!selected || executing || !customCmd.trim()}
+                  className="rounded border border-red-800/50 bg-red-700/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-red-400 transition hover:bg-red-700/30 disabled:opacity-30"
+                >
+                  {executing ? "..." : "EXEC"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* History View */}
+        {view === "history" && (
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[9px] uppercase tracking-widest text-slate-600">Command History</span>
+              <button
+                type="button"
+                onClick={() => setHistory([])}
+                className="text-[9px] uppercase tracking-wider text-slate-600 transition hover:text-red-400"
+              >
+                Clear All
+              </button>
+            </div>
+            {history.length === 0 && (
+              <p className="mt-8 text-center text-[10px] uppercase tracking-wider text-slate-700">No history yet</p>
+            )}
+            {history.map((entry, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => { setOutput(entry.result.error || entry.result.output); setOutputOk(entry.result.success); setView("console"); }}
+                className="mb-2 w-full rounded border border-white/[0.05] bg-white/[0.02] p-3 text-left transition hover:border-white/[0.10]"
+              >
+                <div className="flex items-center justify-between">
+                  <code className="font-mono text-[11px] text-red-400">{entry.cmd}</code>
+                  <span className="text-[9px] text-slate-600">{new Date(entry.ts).toLocaleTimeString()}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`text-[9px] uppercase ${entry.result.success ? "text-green-600" : "text-red-600"}`}>
+                    {entry.result.success ? "OK" : "FAIL"}
+                  </span>
+                  <span className="text-[9px] text-slate-600 truncate">
+                    {(entry.result.output || entry.result.error || "").slice(0, 60)}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Info View */}
+        {view === "info" && (
+          <div className="flex-1 overflow-y-auto p-6">
+            {!selected ? (
+              <p className="text-center text-[10px] uppercase tracking-wider text-slate-700">Select a session</p>
+            ) : (
+              <div className="space-y-3">
+                <h2 className="text-[9px] font-semibold uppercase tracking-widest text-slate-500">
+                  Session Intel
+                </h2>
+                {[
+                  ["ID", `#${selected.id}`],
+                  ["Type", selected.type.toUpperCase()],
+                  ["Platform", selected.platform || "Unknown"],
+                  ["Architecture", selected.arch || "Unknown"],
+                  ["Host Info", selected.info],
+                  ["Tunnel", selected.tunnel],
+                  ["Via Exploit", selected.via],
+                  ["Workspace", selected.workspace],
+                  ["Last Seen", new Date(selected.lastSeen).toLocaleString()],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex gap-4 rounded border border-white/[0.04] bg-white/[0.02] px-4 py-2.5">
+                    <span className="w-28 shrink-0 text-[10px] uppercase tracking-wider text-slate-500">{label}</span>
+                    <span className="font-mono text-[11px] text-slate-200">{value}</span>
+                  </div>
+                ))}
+
+                {/* Quick actions */}
+                <div className="mt-6">
+                  <h3 className="mb-3 text-[9px] font-semibold uppercase tracking-widest text-slate-500">Quick Actions</h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: "SYSINFO", id: "sysinfo" },
+                      { label: "WHOAMI", id: "getuid" },
+                      { label: "PROCESSES", id: "ps" },
+                      { label: "NETWORK", id: "ifconfig" },
+                      { label: "SCREENSHOT", id: "screenshot" },
+                      { label: "HASHDUMP", id: "hashdump", danger: true },
+                      { label: "GETSYSTEM", id: "getsystem", danger: true },
+                      { label: "KEYSCAN", id: "keyscan_start" },
+                      { label: "CLIPBOARD", id: "clipboard_get" },
+                    ].map(action => {
+                      const cmd = commands.find(c => c.id === action.id);
+                      return (
+                        <button
+                          key={action.id}
+                          type="button"
+                          disabled={!cmd || executing}
+                          onClick={() => cmd && runCommand(cmd)}
+                          className={`rounded border py-2 text-[10px] font-semibold uppercase tracking-wider transition disabled:opacity-30 ${
+                            action.danger
+                              ? "border-red-800/50 bg-red-950/20 text-red-400 hover:bg-red-950/40"
+                              : "border-white/[0.08] bg-white/[0.03] text-slate-400 hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-slate-200"
+                          }`}
+                        >
+                          {action.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
-}
-
-function getCommandById(commands: C2Command[], id: string): C2Command | undefined {
-  return commands.find((c) => c.id === id);
 }

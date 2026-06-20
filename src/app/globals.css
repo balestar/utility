@@ -1,24 +1,86 @@
 @import "tailwindcss";
 
 :root {
-  --background: #09090b;
-  --foreground: #fafafa;
+  --bg:         #050508;
+  --bg-1:       #0a0a0f;
+  --bg-2:       #0f0f16;
+  --bg-3:       #14141e;
+  --border:     rgba(255,255,255,0.06);
+  --border-2:   rgba(255,255,255,0.10);
+  --text:       #e2e8f0;
+  --text-2:     #94a3b8;
+  --text-3:     #475569;
+  --accent:     #ef4444;
+  --accent-dim: rgba(239,68,68,0.12);
+  --green:      #22c55e;
+  --amber:      #f59e0b;
+  --cyan:       #06b6d4;
+  --cyan-dim:   rgba(6,182,212,0.12);
+  --green-dim:  rgba(34,197,94,0.12);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-foreground:  var(--text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+html, body { height: 100%; }
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-code,
-pre {
+code, pre {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 9px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+
+/* Scanline overlay for military feel */
+.scanlines {
+  position: relative;
+}
+.scanlines::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  z-index: 1;
+}
+
+/* Terminal glow */
+.term-glow {
+  text-shadow: 0 0 8px rgba(34,197,94,0.6);
+}
+
+/* Status pulse */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.status-pulse { animation: status-pulse 2s ease-in-out infinite; }
+
+/* Blink cursor */
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.cursor-blink::after {
+  content: "█";
+  animation: blink 1s step-end infinite;
+  margin-left: 2px;
+  font-size: 0.75em;
 }
