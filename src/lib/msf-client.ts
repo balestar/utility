@@ -1,6 +1,4 @@
-import { getMsfConfig } from "./msf-config";
 import { getRpcToken, rpcCall } from "./msf-rpc";
-import { demoModules, demoSessions, demoVersion, demoWorkspaces } from "./msf-demo";
 
 export type MsfConnectionStatus = {
   connected: boolean;
@@ -10,15 +8,9 @@ export type MsfConnectionStatus = {
 };
 
 export async function getConnectionStatus(): Promise<MsfConnectionStatus> {
-  const config = getMsfConfig();
-
-  if (config.demoMode) {
-    return { connected: true, demo: true, version: demoVersion.version };
-  }
-
   try {
     const token = await getRpcToken();
-    const info = await rpcCall<Record<string, string>>("core.version", [], token);
+    const info = await rpcCall<{ version?: string; api?: string }>("core.version", [], token);
     return {
       connected: true,
       demo: false,
@@ -33,81 +25,137 @@ export async function getConnectionStatus(): Promise<MsfConnectionStatus> {
   }
 }
 
-export async function listModules(type: "exploit" | "payload" | "auxiliary") {
-  const config = getMsfConfig();
+/**
+ * MSF RPC v6 returns module lists as flat arrays of module-path strings:
+ *   module.exploits  → { "modules": ["exploit/windows/smb/ms17_010_eternalblue", ...] }
+ *   module.payloads  → { "modules": ["windows/x64/meterpreter/reverse_tcp", ...] }
+ *   module.auxiliary → { "modules": ["auxiliary/scanner/portscan/tcp", ...] }
+ */
+export async function listModules(
+  type: "exploit" | "payload" | "auxiliary" | "post" | "encoder" | "nop",
+) {
+  const methodMap: Record<string, string> = {
+    exploit:   "module.exploits",
+    payload:   "module.payloads",
+    auxiliary: "module.auxiliary",
+    post:      "module.post",
+    encoder:   "module.encoders",
+    nop:       "module.nops",
+  };
 
-  if (config.demoMode) {
-    if (type === "exploit") return demoModules.exploits;
-    if (type === "payload") return demoModules.payloads;
-    return demoModules.auxiliary;
+  const token = await getRpcToken();
+  const response = await rpcCall<{ modules?: unknown }>(methodMap[type] ?? "module.exploits", [], token);
+
+  const raw = response.modules;
+  if (!raw) return [];
+
+  // MSF v6 returns an array of module-path strings
+  if (Array.isArray(raw)) {
+    return (raw as string[]).map((name) => ({ name, rank: "normal", description: name }));
   }
 
-  const token = await getRpcToken();
-  const method =
-    type === "exploit"
-      ? "module.exploits"
-      : type === "payload"
-        ? "module.payloads"
-        : "module.auxiliary";
-
-  const response = await rpcCall<Record<string, unknown>>(method, [], token);
-  // MSF returns modules under the "modules" key
-  const moduleCollection = response.modules as Record<string, Record<string, string>> | undefined;
-  if (!moduleCollection) return [];
-
-  return Object.entries(moduleCollection).map(([name, info]) => {
-    const meta = (info ?? {}) as Record<string, string>;
-    return {
-      name,
-      rank: meta.rank ?? "unknown",
-      description: meta.description ?? meta.name ?? name,
-      disclosureDate: meta.disclosuredate ?? meta.disclosure_date,
-    };
-  });
-}
-
-export async function listSessions() {
-  const config = getMsfConfig();
-
-  if (config.demoMode) return demoSessions;
-
-  const token = await getRpcToken();
-  const response = await rpcCall<Record<string, unknown>>("session.list", [], token);
-
-  // MSF returns session IDs as keys, e.g. { "1": { type: "meterpreter", ... } }
-  const sessionMap = response as Record<string, Record<string, string>>;
-
-  return Object.entries(sessionMap).map(([id, session]) => ({
-    id: Number(id),
-    type: session.type ?? "unknown",
-    tunnel: session.tunnel_peer ?? session.tunnel_local ?? "—",
-    via: session.via_exploit ?? "—",
-    info: session.info ?? "—",
-    workspace: session.workspace ?? "default",
-  }));
-}
-
-export async function listWorkspaces() {
-  const config = getMsfConfig();
-
-  if (config.demoMode) return demoWorkspaces;
-
-  const token = await getRpcToken();
-  const response = await rpcCall<Record<string, unknown>>("workspace.list", [], token);
-
-  // MSF returns workspaces as either a map { name: { created_at: ... } }
-  // or an array under a "workspaces" key
-  const workspaces = (response.workspaces ?? response) as Record<string, unknown> | unknown[];
-
-  if (Array.isArray(workspaces)) {
-    return (workspaces as { name?: string; created_at?: number }[]).map((w) => ({
-      name: w.name ?? "unknown",
-      created_at: w.created_at,
-    }));
-  }
-
-  return Object.entries(workspaces).map(([name, meta]) => ({
+  // Older format: map of name → info object
+  return Object.entries(raw as Record<string, Record<string, string>>).map(([name, info]) => ({
     name,
-    created_at: (meta as Record<string, number>)?.created_at,
+    rank: info?.rank ?? "unknown",
+    description: info?.description ?? info?.name ?? name,
   }));
+}
+
+/**
+ * Get detailed info about a specific module.
+ */
+export async function getModuleInfo(type: string, moduleName: string) {
+  const token = await getRpcToken();
+  try {
+    const info = await rpcCall<Record<string, unknown>>("module.info", [type, moduleName], token);
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * MSF session.list returns a map of session ID → session info object:
+ *   { "1": { "type": "meterpreter", "tunnel_peer": "...", ... } }
+ * Empty = {}
+ */
+export async function listSessions() {
+  const token = await getRpcToken();
+  const response = await rpcCall<Record<string, Record<string, string>>>("session.list", [], token);
+
+  if (!response || Object.keys(response).length === 0) return [];
+
+  return Object.entries(response).map(([id, session]) => ({
+    id: Number(id),
+    type:      session.type ?? "unknown",
+    tunnel:    session.tunnel_peer ?? session.tunnel_local ?? "—",
+    via:       session.via_exploit ?? "—",
+    info:      session.info ?? "—",
+    workspace: session.workspace ?? "default",
+    platform:  session.platform ?? "unknown",
+    arch:      session.arch ?? "unknown",
+    username:  session.username ?? session.info?.split(" ")?.[0] ?? "—",
+    remoteHost: session.tunnel_peer?.split(":")?.[0] ?? "—",
+  }));
+}
+
+/**
+ * MSF db.workspaces returns:
+ *   { "workspaces": [{ "id": 1, "name": "default", "created_at": ..., ... }, ...] }
+ */
+export async function listWorkspaces() {
+  const token = await getRpcToken();
+  try {
+    const response = await rpcCall<{ workspaces?: unknown }>("db.workspaces", [], token);
+    const ws = response.workspaces;
+
+    if (Array.isArray(ws)) {
+      return (ws as { name?: string; created_at?: number }[]).map((w) => ({
+        name: w.name ?? "unknown",
+        created_at: w.created_at,
+      }));
+    }
+
+    if (ws && typeof ws === "object") {
+      return Object.entries(ws as Record<string, unknown>).map(([name, meta]) => ({
+        name,
+        created_at: (meta as Record<string, number>)?.created_at,
+      }));
+    }
+
+    return [{ name: "default", created_at: undefined }];
+  } catch {
+    return [{ name: "default", created_at: undefined }];
+  }
+}
+
+/**
+ * Get current active workspace.
+ */
+export async function getCurrentWorkspace(): Promise<string> {
+  try {
+    const token = await getRpcToken();
+    const response = await rpcCall<{ workspace?: string }>("db.current_workspace", [], token);
+    return response.workspace ?? "default";
+  } catch {
+    return "default";
+  }
+}
+
+/**
+ * Run a search across MSF modules.
+ * Returns matching module paths.
+ */
+export async function searchModules(keyword: string): Promise<string[]> {
+  const token = await getRpcToken();
+  try {
+    const response = await rpcCall<{ modules?: unknown }>("module.search", [keyword], token);
+    const raw = response.modules;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw as string[];
+    return Object.keys(raw as object);
+  } catch {
+    return [];
+  }
 }

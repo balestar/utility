@@ -1,138 +1,132 @@
+/**
+ * MSF Console API — persistent console session per server lifetime.
+ * Uses MSF RPC console.create / console.write / console.read.
+ *
+ * Each Next.js server instance owns one MSF console. Commands are
+ * serialized through a single console to avoid interleaving output.
+ */
+
 import { NextResponse } from "next/server";
 import { getMsfConfig } from "@/lib/msf-config";
-import { demoVersion } from "@/lib/msf-demo";
+import { getRpcToken, rpcCall } from "@/lib/msf-rpc";
 
-// In-memory console state (server memory, resets on restart)
-// Production would use Redis or DB — this is enough for single-server use
+// In-memory state (server lifetime)
+let persistentConsoleId: string | null = null;
 const consoleHistory: string[] = [];
-let demoLine = 0;
+let commandLock = false;
 
-const DEMO_RESPONSES: Record<string, string> = {
-  help: `Core Commands
-=============
-    Command       Description
-    -------       -----------
-    ?             Help menu
-    background    Backgrounds the current session
-    cd            Change the current working directory
-    connect       Communicate with a host
-    debug         Display information for debugging
-    exit          Exit the console
-    info          Displays information about a module
-    jobs          Displays and manages jobs
-    kill          Kill a job
-    load          Load a framework plugin
-    quit          Exit the console
-    route         Route traffic through a session
-    search        Searches module names and descriptions
-    sessions      Dump session listings
-    set           Sets a variable to a value
-    show          Displays modules of a given type, or all modules
-    use           Selects a module by name
-    version       Show the framework and console library version numbers`,
+// ── Console lifecycle ─────────────────────────────────────────
 
-  version: `Framework: 6.4.0-dev
-Console  : 6.4.0-dev (demo)`,
-
-  sessions: `Active sessions
-===============
-  Id  Name  Type                     Information                   Connection
-  --  ----  ----                     -----------                   ----------
-  1         meterpreter x64/windows  DESKTOP-LAB\\admin @ DESKTOP  10.0.0.1:4444 -> 192.168.1.42:49152 (192.168.1.42)`,
-
-  jobs: `Jobs
-====
-  Id  Name               Payload
-  --  ----               -------
-  0   Exploit: multi/handler  windows/x64/meterpreter/reverse_tcp`,
-
-  "show exploits": "Use 'search' to filter exploits by keyword. Example: search type:exploit platform:windows",
-  "show payloads": "Use 'search' to filter payloads by keyword. Example: search type:payload platform:windows",
-  "show modules": "show exploits | show payloads | show auxiliary | show post | show encoders",
-  route: "No routes defined.",
-  exit: "[*] Exiting...",
-  quit: "[*] Exiting...",
-};
-
-function demoExec(cmd: string): string {
-  const lower = cmd.trim().toLowerCase();
-  if (!lower) return "";
-  if (lower.startsWith("search ")) {
-    const kw = cmd.slice(7).trim();
-    return `Matching Modules
-================
-   #   Name                                              Disclosure Date  Rank       Description
-   -   ----                                              ---------------  ----       -----------
-   0   exploit/windows/smb/ms17_010_eternalblue          2017-03-14       average    EternalBlue SMB RCE
-   1   exploit/multi/http/log4shell_header_injection     2021-12-09       excellent  Log4Shell JNDI RCE
-   2   auxiliary/scanner/portscan/tcp                    -                normal     TCP Port Scanner
-   (filtered for: ${kw})`;
+async function getOrCreateConsole(token: string): Promise<string> {
+  if (persistentConsoleId !== null) {
+    // Verify the console is still alive
+    try {
+      await rpcCall<{ busy?: boolean }>("console.read", [persistentConsoleId], token);
+      return persistentConsoleId;
+    } catch {
+      persistentConsoleId = null;
+    }
   }
-  if (lower.startsWith("use ")) {
-    const mod = cmd.slice(4).trim();
-    return `[*] Using configured payload windows/x64/meterpreter/reverse_tcp\nmsf6 ${mod}(module) > `;
-  }
-  if (lower.startsWith("set ")) return `${cmd.slice(4).split(" ")[0].toUpperCase()} => ${cmd.slice(4).split(" ").slice(1).join(" ")}`;
-  if (lower.startsWith("run") || lower.startsWith("exploit")) return `[*] Started reverse TCP handler on 0.0.0.0:4444\n[*] Sending stage (175686 bytes) to 192.168.1.42\n[*] Meterpreter session 2 opened`;
-  if (lower.startsWith("sessions -i")) return `[*] Starting interaction with session ${lower.split(" ").pop()}...`;
-  if (lower in DEMO_RESPONSES) return DEMO_RESPONSES[lower];
-  return `[-] Unknown command: ${cmd}. Type 'help' for available commands.`;
+
+  const created = await rpcCall<{ id?: string | number }>("console.create", [], token);
+  persistentConsoleId = String(created.id ?? "0");
+
+  // Wait for MSF banner to finish loading
+  await new Promise((r) => setTimeout(r, 1500));
+  // Drain any banner output
+  await rpcCall("console.read", [persistentConsoleId], token);
+
+  return persistentConsoleId;
 }
 
+/**
+ * Wait until the console is no longer busy, collecting all output.
+ */
+async function waitForOutput(token: string, consoleId: string, maxWaitMs = 30000): Promise<string> {
+  const start = Date.now();
+  let output = "";
+
+  while (Date.now() - start < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, 400));
+    const res = await rpcCall<{ data?: string; busy?: boolean }>(
+      "console.read", [consoleId], token,
+    );
+    output += res.data ?? "";
+    if (!res.busy) break;
+  }
+
+  return output.trim();
+}
+
+// ── API Handlers ──────────────────────────────────────────────
+
 export async function GET() {
-  // Return console history
-  return NextResponse.json({ history: consoleHistory.slice(-200) });
+  const config = getMsfConfig();
+  return NextResponse.json({
+    history: consoleHistory.slice(-500),
+    demo: config.demoMode,
+    consoleId: persistentConsoleId,
+  });
 }
 
 export async function POST(request: Request) {
-  const { command } = await request.json();
-  if (typeof command !== "string") {
+  const body = await request.json().catch(() => ({}));
+  const command = typeof body.command === "string" ? body.command.trim() : "";
+  if (!command) {
     return NextResponse.json({ error: "command required" }, { status: 400 });
   }
 
-  const config = getMsfConfig();
-
-  if (config.demoMode) {
-    const output = demoExec(command);
-    const entry = `msf6 > ${command}`;
-    consoleHistory.push(entry);
-    if (output) consoleHistory.push(output);
-    return NextResponse.json({ output, demo: true, version: demoVersion.version });
+  // Simple lock to serialize commands
+  if (commandLock) {
+    return NextResponse.json(
+      { error: "Console busy — previous command still running" },
+      { status: 429 },
+    );
   }
 
-  // Live mode — use MSF RPC
-  try {
-    const { rpcCall, getRpcToken } = await import("@/lib/msf-rpc");
-    const token = await getRpcToken();
+  const config = getMsfConfig();
+  if (config.demoMode) {
+    return NextResponse.json({ error: "Demo mode — MSF backend not connected", demo: true }, { status: 503 });
+  }
 
-    // Create a console if we don't have one
-    let consoleId: string;
-    try {
-      const created = await rpcCall<{ id?: string }>("console.create", [], token);
-      consoleId = String(created.id ?? "0");
-    } catch {
-      consoleId = "0";
-    }
+  commandLock = true;
+  try {
+    const token = await getRpcToken();
+    const consoleId = await getOrCreateConsole(token);
 
     // Write command
     await rpcCall("console.write", [consoleId, command + "\n"], token);
-    await new Promise(r => setTimeout(r, 600));
 
-    // Read output
-    const read = await rpcCall<{ data?: string }>("console.read", [consoleId], token);
-    const output = (read?.data ?? "").trim();
+    // Wait for output
+    const output = await waitForOutput(token, consoleId);
 
+    // Update history
     consoleHistory.push(`msf6 > ${command}`);
     if (output) consoleHistory.push(output);
 
-    return NextResponse.json({ output, demo: false });
+    // Trim history to 1000 lines
+    if (consoleHistory.length > 1000) consoleHistory.splice(0, consoleHistory.length - 1000);
+
+    return NextResponse.json({ output, demo: false, consoleId });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    // If we get a console error, reset so next request creates a fresh console
+    persistentConsoleId = null;
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  } finally {
+    commandLock = false;
   }
 }
 
 export async function DELETE() {
-  // Clear history
+  // Reset console and clear history
+  if (persistentConsoleId !== null) {
+    try {
+      const token = await getRpcToken();
+      await rpcCall("console.destroy", [persistentConsoleId], token);
+    } catch { /* ignore */ }
+    persistentConsoleId = null;
+  }
   consoleHistory.length = 0;
   return NextResponse.json({ ok: true });
 }

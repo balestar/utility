@@ -31,7 +31,6 @@ type CampaignDetail = {
 };
 
 type LockerStatus = {
-  demoMode: boolean;
   campaignsCount: number;
   keysAvailable: boolean;
   totalFilesEncrypted: number;
