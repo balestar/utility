@@ -61,6 +61,45 @@ export default function SettingsPage() {
         <h1 className="mt-1 text-xl font-bold text-white">Settings</h1>
       </div>
 
+      {/* ── HOW TO ACCESS ─────────────────────────────── */}
+      <section className="space-y-3">
+        <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-600">Access the App in Your Browser</p>
+        <div className="rounded border border-cyan-900/30 bg-cyan-950/10 p-5 space-y-4">
+          <div>
+            <p className="text-[10px] font-semibold text-cyan-400 mb-2">OPTION A — Dev Mode (Instant, no Docker)</p>
+            <div className="space-y-1.5 font-mono text-[11px]">
+              {[
+                ["cd ~/metasploit-app", true],
+                ["npm run dev", true],
+                ["# Open: http://localhost:3000", false],
+              ].map(([cmd, copyable]) => (
+                <div key={String(cmd)} onClick={() => { if (copyable) { navigator.clipboard.writeText(String(cmd)); toast("Copied", "success", 1200); }}}
+                  className={`block w-full rounded border border-white/[0.04] px-3 py-1 text-left ${copyable ? "cursor-pointer text-green-400 hover:bg-white/[0.03]" : "text-slate-600"}`}
+                >{String(cmd)}</div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-semibold text-cyan-400 mb-2">OPTION B — Full Docker Stack (Recommended)</p>
+            <div className="space-y-1.5 font-mono text-[11px]">
+              {[
+                ["cd ~/metasploit-app", true],
+                ["docker compose up -d", true],
+                ["# Wait ~2 min for MSF to start", false],
+                ["# Open: http://localhost", false],
+                ["# Login: admin / changeme", false],
+              ].map(([cmd, copyable]) => (
+                <div key={String(cmd)} onClick={() => { if (copyable) { navigator.clipboard.writeText(String(cmd)); toast("Copied", "success", 1200); }}}
+                  className={`block w-full rounded border border-white/[0.04] px-3 py-1 text-left ${copyable ? "cursor-pointer text-green-400 hover:bg-white/[0.03]" : "text-slate-600"}`}
+                >{String(cmd)}</div>
+              ))}
+            </div>
+          </div>
+          <p className="text-[9px] text-slate-700">Click any green command to copy it to clipboard</p>
+        </div>
+      </section>
+
       {/* Connection status */}
       <section className="space-y-3">
         <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-600">Backend Connection</p>

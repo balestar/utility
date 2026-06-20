@@ -13,15 +13,16 @@ type PaletteItem = {
 };
 
 const ROUTES: PaletteItem[] = [
-  { id: "dashboard",  label: "Dashboard",       sub: "Overview & status",              href: "/",          keys: "G D" },
-  { id: "agents",     label: "Agent Control",    sub: "C2 — send commands to sessions", href: "/agents",    keys: "G A" },
-  { id: "sessions",   label: "Sessions",         sub: "Active remote sessions",         href: "/sessions",  keys: "G S" },
-  { id: "listeners",  label: "Listeners",        sub: "Manage multi/handler listeners", href: "/listeners", keys: "G L" },
-  { id: "payloads",   label: "Payloads",         sub: "Generate msfvenom payloads",     href: "/payloads",  keys: "G P" },
-  { id: "modules",    label: "Module Browser",   sub: "Browse exploits & auxiliary",    href: "/modules",   keys: "G M" },
-  { id: "locker",     label: "CryptoLocker",     sub: "Encryption campaigns",           href: "/locker",    keys: "G C" },
-  { id: "workspaces", label: "Workspaces",       sub: "MSF workspace management",       href: "/workspaces" },
-  { id: "settings",   label: "Settings",         sub: "Config, PIN, connection",        href: "/settings",  keys: "G ," },
+  { id: "dashboard",  label: "Dashboard",       sub: "Overview & status",                href: "/",          keys: "G D" },
+  { id: "agents",     label: "Agent Control",    sub: "C2 — send commands to sessions",  href: "/agents",    keys: "G A" },
+  { id: "sessions",   label: "Sessions",         sub: "Active remote sessions",           href: "/sessions",  keys: "G S" },
+  { id: "listeners",  label: "Listeners",        sub: "Manage multi/handler listeners",   href: "/listeners", keys: "G L" },
+  { id: "console",    label: "MSF Console",      sub: "Interactive Metasploit terminal",  href: "/console",   keys: "G T" },
+  { id: "payloads",   label: "Payloads",         sub: "Generate msfvenom payloads",       href: "/payloads",  keys: "G P" },
+  { id: "modules",    label: "Module Browser",   sub: "Browse exploits & auxiliary",      href: "/modules",   keys: "G M" },
+  { id: "locker",     label: "CryptoLocker",     sub: "AES-256 encryption campaigns",     href: "/locker",    keys: "G C" },
+  { id: "workspaces", label: "Workspaces",       sub: "Create/switch/delete workspaces",  href: "/workspaces" },
+  { id: "settings",   label: "Settings",         sub: "Config, PIN, connection, shortcuts", href: "/settings", keys: "G ," },
 ];
 
 export function CommandPalette() {

@@ -31,6 +31,13 @@ const navItems = [
     icon: <ListenerIcon />,
   },
   {
+    label: "CONSOLE",
+    href: "/console",
+    icon: <ConsoleIcon />,
+    badge: "MSF",
+    badgeColor: "text-green-400 border-green-800/60",
+  },
+  {
     section: "TOOLS",
   },
   {
@@ -47,7 +54,7 @@ const navItems = [
     label: "CRYPTOLOCKER",
     href: "/locker",
     icon: <LockIcon />,
-    badge: "NEW",
+    badge: "AES",
     badgeColor: "text-amber-400 border-amber-800/60",
   },
   {
@@ -65,6 +72,13 @@ const navItems = [
   },
 ];
 
+function ConsoleIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+    </svg>
+  );
+}
 function GridIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
