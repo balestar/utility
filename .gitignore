@@ -38,3 +38,8 @@ payloads/*
 
 # agent transcripts
 agent/
+
+# locker data (encryption keys, campaigns)
+.campaigns/
+.keystore/
+locker-scripts/
