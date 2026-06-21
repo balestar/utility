@@ -28,6 +28,7 @@ const QUICK = [
   { href: "/network",   label: "Network Ops",     sub: "LAN · WiFi · Router · Pivot" },
   { href: "/evasion",   label: "AV/EDR Evasion",  sub: "Defender · AMSI · ETW · UAC" },
   { href: "/embed",     label: "Payload Embed",    sub: "PDF · Video · Office · APK" },
+  { href: "/browser",   label: "Session Browser",  sub: "Mirror device · Browse as target", accent: true },
 ];
 
 function LiveClock() {
