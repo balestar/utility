@@ -163,6 +163,28 @@ export async function logFile(file: Omit<CapturedFile, "id" | "captured_at">): P
   return data;
 }
 
+/** Convenience wrapper used by API routes to log captured files. */
+export async function logCapturedFile(opts: {
+  device_id: string;
+  session_id?: number | null;
+  filename: string;
+  filepath?: string | null;
+  type?: string | null;
+  size?: number | null;
+  source?: string;
+}): Promise<CapturedFile | null> {
+  return logFile({
+    device_id: opts.device_id,
+    session_id: opts.session_id ?? null,
+    filename: opts.filename,
+    filepath: opts.filepath ?? null,
+    file_type: opts.type ?? null,
+    size_bytes: opts.size ?? null,
+    storage_path: null,
+    metadata: { source: opts.source ?? "api" },
+  });
+}
+
 export async function uploadFile(
   deviceId: string,
   filename: string,

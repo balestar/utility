@@ -22,6 +22,7 @@ const QUICK = [
   { href: "/modules",   label: "Modules",          sub: "Exploit & auxiliary browser" },
   { href: "/sessions",  label: "Sessions",         sub: "View active connections" },
   { href: "/map",       label: "Live Map",         sub: "GPS tracker — all devices" },
+  { href: "/comms",     label: "Comms Intel",      sub: "Calls · SMS · Social media" },
 ];
 
 function LiveClock() {
