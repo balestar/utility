@@ -26,6 +26,8 @@ const QUICK = [
   { href: "/biometrics",label: "Biometrics",       sub: "Lock · Passkeys · Keystore" },
   { href: "/finance",   label: "Finance Intel",   sub: "Wallets · Banks · OTP · TX" },
   { href: "/network",   label: "Network Ops",     sub: "LAN · WiFi · Router · Pivot" },
+  { href: "/evasion",   label: "AV/EDR Evasion",  sub: "Defender · AMSI · ETW · UAC" },
+  { href: "/embed",     label: "Payload Embed",    sub: "PDF · Video · Office · APK" },
 ];
 
 function LiveClock() {

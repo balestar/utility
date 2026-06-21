@@ -101,6 +101,20 @@ const navItems = [
     icon: <ModuleIcon />,
   },
   {
+    label: "AV/EDR EVASION",
+    href: "/evasion",
+    icon: <EvasionIcon />,
+    badge: "STEALTH",
+    badgeColor: "text-orange-400 border-orange-800/60",
+  },
+  {
+    label: "PAYLOAD EMBED",
+    href: "/embed",
+    icon: <EmbedIcon />,
+    badge: "TROJAN",
+    badgeColor: "text-pink-400 border-pink-800/60",
+  },
+  {
     label: "CRYPTOLOCKER",
     href: "/locker",
     icon: <LockIcon />,
@@ -246,6 +260,25 @@ function NetworkIcon() {
       <rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/>
       <rect x="9" y="16" width="6" height="6" rx="1"/>
       <path d="M5 8v4h14V8M12 12v4"/>
+    </svg>
+  );
+}
+function EvasionIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+      <path d="M2 17l10 5 10-5"/>
+      <path d="M2 12l10 5 10-5"/>
+    </svg>
+  );
+}
+function EmbedIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="12" y1="18" x2="12" y2="12"/>
+      <line x1="9" y1="15" x2="15" y2="15"/>
     </svg>
   );
 }
