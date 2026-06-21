@@ -50,6 +50,41 @@ let persistentConsoleId: string | null = null;
 const consoleHistory: string[] = [];
 let commandLock = false;
 
+// Queue: when the console is busy, subsequent requests wait in line
+interface QueuedCommand {
+  command: string;
+  resolve: (value: string) => void;
+  reject: (reason: Error) => void;
+}
+const commandQueue: QueuedCommand[] = [];
+const QUEUE_MAX = 10;
+
+async function enqueueCommand(command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (commandQueue.length >= QUEUE_MAX) {
+      reject(new Error("Console queue full — too many pending commands"));
+      return;
+    }
+    commandQueue.push({ command, resolve, reject });
+  });
+}
+
+async function drainQueue(token: string, consoleId: string) {
+  while (commandQueue.length > 0) {
+    const item = commandQueue.shift()!;
+    try {
+      await rpcCall("console.write", [consoleId, item.command + "\n"], token);
+      const output = await waitForOutput(token, consoleId);
+      consoleHistory.push(`msf6 > ${item.command}`);
+      if (output) consoleHistory.push(output);
+      if (consoleHistory.length > 1000) consoleHistory.splice(0, consoleHistory.length - 1000);
+      item.resolve(output);
+    } catch (err) {
+      item.reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+}
+
 // ── Console lifecycle ─────────────────────────────────────────
 
 async function getOrCreateConsole(token: string): Promise<string> {
@@ -111,21 +146,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "command required" }, { status: 400 });
   }
 
-  // Simple lock to serialize commands
-  if (commandLock) {
-    return NextResponse.json(
-      { error: "Console busy — previous command still running" },
-      { status: 429 },
-    );
-  }
-
   const config = getMsfConfig();
   if (config.demoMode) {
-    // Simulate plausible MSF console output instead of returning 503
     const simulated = simulateDemoCommand(command);
     consoleHistory.push(`msf6 > ${command}`);
     if (simulated) consoleHistory.push(simulated);
     return NextResponse.json({ output: simulated, demo: true });
+  }
+
+  // If console is busy, queue this command and wait (up to 30s)
+  if (commandLock) {
+    try {
+      const output = await Promise.race([
+        enqueueCommand(command),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("Console queue timeout (30s)")), 30000)
+        ),
+      ]);
+      return NextResponse.json({ output, demo: false, consoleId: persistentConsoleId, queued: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ error: msg }, { status: 503 });
+    }
   }
 
   commandLock = true;
@@ -133,23 +175,24 @@ export async function POST(request: Request) {
     const token = await getRpcToken();
     const consoleId = await getOrCreateConsole(token);
 
-    // Write command
+    // Write and read the primary command
     await rpcCall("console.write", [consoleId, command + "\n"], token);
-
-    // Wait for output
     const output = await waitForOutput(token, consoleId);
 
-    // Update history
     consoleHistory.push(`msf6 > ${command}`);
     if (output) consoleHistory.push(output);
-
-    // Trim history to 1000 lines
     if (consoleHistory.length > 1000) consoleHistory.splice(0, consoleHistory.length - 1000);
+
+    // Drain any queued commands while we still hold the token
+    await drainQueue(token, consoleId);
 
     return NextResponse.json({ output, demo: false, consoleId });
   } catch (err) {
-    // If we get a console error, reset so next request creates a fresh console
     persistentConsoleId = null;
+    // Drain queue with errors so queued callers don't hang
+    commandQueue.splice(0).forEach((q) =>
+      q.reject(err instanceof Error ? err : new Error(String(err)))
+    );
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
   } finally {
