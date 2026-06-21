@@ -22,6 +22,7 @@ const ROUTES: PaletteItem[] = [
   { id: "modules",    label: "Module Browser",   sub: "Browse exploits & auxiliary",      href: "/modules",   keys: "G M" },
   { id: "locker",     label: "CryptoLocker",     sub: "AES-256 encryption campaigns",     href: "/locker",    keys: "G C" },
   { id: "devices",    label: "All Devices",       sub: "Real-time device feed (Supabase)",  href: "/devices",   keys: "G V" },
+  { id: "map",        label: "Live Map",          sub: "GPS tracker — device locations",    href: "/map",       keys: "G G" },
   { id: "vault",      label: "File Vault",        sub: "All captured files across devices", href: "/vault",     keys: "G F" },
   { id: "workspaces", label: "Workspaces",        sub: "Create/switch/delete workspaces",  href: "/workspaces" },
   { id: "settings",   label: "Settings",          sub: "Config, PIN, connection, shortcuts", href: "/settings", keys: "G ," },

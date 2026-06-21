@@ -53,6 +53,23 @@ export type CapturedFile = {
   metadata: Record<string, unknown>;
 };
 
+export type Location = {
+  id: string;
+  device_id: string;
+  session_id: number | null;
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+  altitude: number | null;
+  speed: number | null;
+  heading: number | null;
+  source: string;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  captured_at: string;
+};
+
 export type OfflineQueueItem = {
   id: string;
   payload: Record<string, unknown>;
