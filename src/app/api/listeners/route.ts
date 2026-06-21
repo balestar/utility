@@ -5,10 +5,20 @@ import {
   listListeners,
   stopListener,
 } from "@/lib/backdoor";
+import { getMsfConfig } from "@/lib/msf-config";
+
+const DEMO_LISTENERS = [
+  { jobId: "0", payload: "windows/x64/meterpreter/reverse_tcp", lhost: "0.0.0.0", lport: 4444, started: new Date().toISOString() },
+  { jobId: "1", payload: "android/meterpreter/reverse_tcp",     lhost: "0.0.0.0", lport: 4445, started: new Date().toISOString() },
+];
 
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (getMsfConfig().demoMode) {
+    return NextResponse.json({ listeners: DEMO_LISTENERS, demo: true });
   }
 
   try {

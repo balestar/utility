@@ -9,6 +9,41 @@
 import { NextResponse } from "next/server";
 import { getMsfConfig } from "@/lib/msf-config";
 import { getRpcToken, rpcCall } from "@/lib/msf-rpc";
+import { demoSessions, demoModules, demoVersion, demoWorkspaces } from "@/lib/msf-demo";
+
+// ── Demo command simulator ────────────────────────────────────
+function simulateDemoCommand(cmd: string): string {
+  const c = cmd.trim().toLowerCase();
+  if (c === "version" || c === "core.version")
+    return `Framework Version: ${demoVersion.version}\nRuby Version: ${demoVersion.ruby}\nAPI: ${demoVersion.api}`;
+  if (c === "sessions" || c === "sessions -l")
+    return demoSessions.map((s) =>
+      `  ${s.id}  ${s.type}  ${s.tunnel}  opened  ${s.info}`).join("\n") || "No active sessions.";
+  if (c.startsWith("sessions -i"))
+    return `[*] Starting interaction with session ${c.split(" ").pop()}...\nmeterpreter > `;
+  if (c === "workspace" || c === "workspace -l")
+    return demoWorkspaces.map((w) => `  ${w.name}`).join("\n");
+  if (c.startsWith("search ")) {
+    const kw = c.replace("search ", "");
+    const all = [...demoModules.exploits, ...demoModules.payloads, ...demoModules.auxiliary];
+    const hits = all.filter((m) => m.name.includes(kw) || m.description.toLowerCase().includes(kw));
+    if (hits.length === 0) return `[*] No results for '${kw}'`;
+    return hits.map((m) => `   ${m.name}   ${m.rank}   ${m.description}`).join("\n");
+  }
+  if (c === "show exploits")
+    return demoModules.exploits.map((m) => `   ${m.name}   ${m.rank}   ${m.description}`).join("\n");
+  if (c === "show payloads")
+    return demoModules.payloads.map((m) => `   ${m.name}   ${m.rank}   ${m.description}`).join("\n");
+  if (c === "show auxiliary")
+    return demoModules.auxiliary.map((m) => `   ${m.name}   ${m.rank}   ${m.description}`).join("\n");
+  if (c === "help" || c === "?")
+    return `Core Commands\n=============\n  sessions  - Manage sessions\n  search    - Search modules\n  use       - Select module\n  show      - Display info\n  workspace - Manage workspaces\n  version   - Show version\n  exit      - Exit console`;
+  if (c.startsWith("use "))
+    return `[*] Using configured module ${c.replace("use ", "")}`;
+  if (c === "exit" || c === "quit")
+    return "[*] Demo mode — console reset";
+  return `[*] DEMO MODE — Command '${cmd}' simulated (MSF backend not connected)\nmsf6 > `;
+}
 
 // In-memory state (server lifetime)
 let persistentConsoleId: string | null = null;
@@ -86,7 +121,11 @@ export async function POST(request: Request) {
 
   const config = getMsfConfig();
   if (config.demoMode) {
-    return NextResponse.json({ error: "Demo mode — MSF backend not connected", demo: true }, { status: 503 });
+    // Simulate plausible MSF console output instead of returning 503
+    const simulated = simulateDemoCommand(command);
+    consoleHistory.push(`msf6 > ${command}`);
+    if (simulated) consoleHistory.push(simulated);
+    return NextResponse.json({ output: simulated, demo: true });
   }
 
   commandLock = true;

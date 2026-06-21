@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { isAuthorized } from "@/lib/auth";
 import { getAllCommands, executeC2Command, executeCustomCommand, listAgentSessions, getCommandsByCategory } from "@/lib/implant/commands";
+import { getMsfConfig } from "@/lib/msf-config";
+import { demoSessions } from "@/lib/msf-demo";
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
@@ -18,6 +20,9 @@ export async function GET(request: Request) {
     }
 
     if (action === "sessions") {
+      if (getMsfConfig().demoMode) {
+        return NextResponse.json({ sessions: demoSessions, demo: true });
+      }
       const sessions = await listAgentSessions();
       return NextResponse.json({ sessions });
     }

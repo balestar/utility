@@ -17,7 +17,7 @@ export function getMsfConfig(): MsfConfig {
   // - MSF_DEMO_MODE unset → demo only in dev (not in production/docker)
   const demoMode =
     explicitDemo === "true" ||
-    (explicitDemo !== "false" && explicitDemo === undefined && process.env.NODE_ENV !== "production");
+    (explicitDemo === undefined && process.env.NODE_ENV !== "production");
 
   return {
     host,

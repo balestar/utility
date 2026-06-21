@@ -1,4 +1,6 @@
 import { getRpcToken, rpcCall } from "./msf-rpc";
+import { getMsfConfig } from "./msf-config";
+import { demoVersion } from "./msf-demo";
 
 export type MsfConnectionStatus = {
   connected: boolean;
@@ -8,6 +10,10 @@ export type MsfConnectionStatus = {
 };
 
 export async function getConnectionStatus(): Promise<MsfConnectionStatus> {
+  const { demoMode } = getMsfConfig();
+  if (demoMode) {
+    return { connected: true, demo: true, version: demoVersion.version };
+  }
   try {
     const token = await getRpcToken();
     const info = await rpcCall<{ version?: string; api?: string }>("core.version", [], token);

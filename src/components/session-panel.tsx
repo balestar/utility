@@ -37,7 +37,13 @@ export function SessionPanel() {
       const data = await res.json();
       setSessions(data.sessions ?? []);
       if (silent && data.sessions?.length > 0) {
-        // no-op
+        // Notify when a new session appears
+        const incoming = (data.sessions as { id: number }[]).filter(
+          (s) => !sessions.some((prev) => prev.id === s.id)
+        );
+        if (incoming.length > 0) {
+          toast(`🔴 ${incoming.length} new session(s) opened`, "success");
+        }
       }
     } catch {
       if (!silent) toast("Failed to load sessions", "error");

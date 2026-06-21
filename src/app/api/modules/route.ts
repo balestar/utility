@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { isAuthorized } from "@/lib/auth";
 import { listModules, getModuleInfo, searchModules } from "@/lib/msf-client";
+import { getMsfConfig } from "@/lib/msf-config";
+import { demoModules } from "@/lib/msf-demo";
 
 const validTypes = new Set(["exploit", "payload", "auxiliary", "post", "encoder", "nop"]);
 
@@ -13,6 +15,14 @@ export async function GET(request: Request) {
   const type = searchParams.get("type") ?? "exploit";
   const search = searchParams.get("search");
   const infoFor = searchParams.get("info");
+
+  if (getMsfConfig().demoMode) {
+    const mods = type === "payload" ? demoModules.payloads
+      : type === "auxiliary" ? demoModules.auxiliary
+      : demoModules.exploits;
+    const filtered = search ? mods.filter((m) => m.name.includes(search) || m.description.toLowerCase().includes(search)) : mods;
+    return NextResponse.json({ modules: filtered, type, count: filtered.length, demo: true });
+  }
 
   // Module info lookup
   if (infoFor) {

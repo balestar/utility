@@ -2,10 +2,16 @@ import { NextResponse } from "next/server";
 import { isAuthorized } from "@/lib/auth";
 import { listSessions } from "@/lib/msf-client";
 import { getRpcToken, rpcCall } from "@/lib/msf-rpc";
+import { getMsfConfig } from "@/lib/msf-config";
+import { demoSessions } from "@/lib/msf-demo";
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (getMsfConfig().demoMode) {
+    return NextResponse.json({ sessions: demoSessions, count: demoSessions.length, demo: true });
   }
 
   try {
