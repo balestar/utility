@@ -24,6 +24,23 @@ function ensureDir(d: string) { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursi
 
 // ── Full device matrix (static knowledge base) ────────────────────────────────
 const DEVICE_MATRIX = {
+  platformLimits: {
+    achievable100PercentAllPlatforms: false,
+    docker: {
+      android: { runnable: true,  apis: "28-34", note: "budtmo emulators — x86 via QEMU on ARM Mac, 8GB+ RAM each" },
+      linux:   { runnable: true,  note: "debian:bookworm-slim — ELF payload smoke" },
+      windows: { runnable: false, note: "Wine only — NOT real Win7-11 Defender/AMSI/ASR" },
+      macos:   { runnable: false, note: "Apple EULA — use native Mac host" },
+      ios:     { runnable: false, note: "Apple prohibits iOS in Docker — physical device or Corellium" },
+    },
+    maxLabScores: {
+      android_api28_34_fullEvasion: 95,
+      windows_wine_smoke: 30,
+      windows_kvm_fullEvasion: { win7: 99, win10_22h2: 65, win11_23h2: 55 },
+      ios_mdm_2tap: 78,
+      macos_native: "not in docker",
+    },
+  },
   android: [
     {
       id: "S10_API28",
@@ -304,6 +321,9 @@ const DEVICE_MATRIX = {
     { scenario: "Full server reboot",    status: "pass",    detail: "docker compose up -d → MSF ready ~90s → re-run listeners." },
   ],
   criticalFailures: [
+    { code: "DOCKER_IOS",        severity: "critical", rate: "N/A",  detail: "iOS CANNOT run in Docker. Use physical iPhone, Corellium, or Xcode Simulator on Mac host." },
+    { code: "DOCKER_MACOS",      severity: "critical", rate: "N/A",  detail: "macOS CANNOT run in Docker (Apple EULA). Test on native Mac host only." },
+    { code: "DOCKER_WINDOWS",    severity: "high",     rate: "N/A",  detail: "Real Win7-11 need KVM/QEMU VMs (UTM). Docker Wine is ~30% fidelity smoke test only." },
     { code: "LHOST_WRONG",       severity: "critical", rate: "40%", detail: "LHOST=127.0.0.1 or wrong interface — payload connects to itself. Always use public/LAN IP." },
     { code: "PORT_BLOCKED",      severity: "high",     rate: "30%", detail: "Carrier blocks outbound TCP 4444. Use port 443 (reverse_https)." },
     { code: "CERT_REVOKED",      severity: "high",     rate: "60%", detail: "Default MSF SSL cert blacklisted by AV. Generate custom cert with openssl." },

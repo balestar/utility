@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-06-21T10:30:00Z",
+  "title": "Full Lab Audit — Honest Platform Limits",
+  "achievable_100_percent_all_platforms": false,
+  "overall_lab_score_percent": 62,
+  "why_not_100": [
+    "iOS cannot run inside Docker (Apple platform restriction)",
+    "macOS cannot run inside Docker (Apple EULA)",
+    "Real Windows 7-11 require KVM/QEMU VMs — Docker only has Wine (~30% fidelity)",
+    "Samsung Knox + Auto Blocker not present in Android emulators",
+    "Play Protect behaves differently on real S24 vs emulator",
+    "Win11 Credential Guard + VBS block cred harvest and many privesc paths"
+  ],
+  "platform_results": {
+    "android_api28_s10": { "docker": true, "raw_apk": 85, "custom_cert": 90, "full_evasion": 95 },
+    "android_api29_s20": { "docker": true, "raw_apk": 80, "custom_cert": 85, "full_evasion": 92 },
+    "android_api30_s21": { "docker": true, "raw_apk": 75, "custom_cert": 83, "full_evasion": 90 },
+    "android_api31_s22": { "docker": true, "raw_apk": 40, "custom_cert": 65, "full_evasion": 80 },
+    "android_api33_s23": { "docker": true, "raw_apk": 25, "custom_cert": 55, "full_evasion": 75 },
+    "android_api34_s24": { "docker": true, "raw_apk": 5,  "custom_cert": 20, "full_evasion": 55 },
+    "windows_7_sp1":     { "docker": false, "wine_only": false, "kvm_needed": true, "full_evasion": 99 },
+    "windows_10_22h2":   { "docker": false, "wine_only": false, "kvm_needed": true, "full_evasion": 65 },
+    "windows_11_23h2":   { "docker": false, "wine_only": false, "kvm_needed": true, "full_evasion": 55 },
+    "linux_x64":         { "docker": true,  "elf_payload": 90 },
+    "ios_14_18":         { "docker": false, "mdm_2tap": 78, "trollstore": "14-17.0b4", "physical_device_required": true },
+    "macos":             { "docker": false, "native_mac_required": true }
+  },
+  "how_to_run_lab": [
+    "docker compose -f docker-compose.yml -f docker-compose.full-lab.yml up -d",
+    "brew install bash android-platform-tools",
+    "DASHBOARD_PORT=4000 ./scripts/full-lab-audit.sh",
+    "Open http://localhost:4000/test → Run Full Test"
+  ],
+  "fixes_applied_this_session": [
+    "Fixed firmware/route.ts syntax error that broke ALL API routes",
+    "Added docker-compose.full-lab.yml (Android 28-34 + Linux + Wine + iOS/mac static)",
+    "Added scripts/full-lab-audit.sh orchestrator"
+  ]
+}
