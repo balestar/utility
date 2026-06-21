@@ -25,6 +25,7 @@ const QUICK = [
   { href: "/comms",     label: "Comms Intel",      sub: "Calls · SMS · Social media" },
   { href: "/biometrics",label: "Biometrics",       sub: "Lock · Passkeys · Keystore" },
   { href: "/finance",   label: "Finance Intel",   sub: "Wallets · Banks · OTP · TX" },
+  { href: "/network",   label: "Network Ops",     sub: "LAN · WiFi · Router · Pivot" },
 ];
 
 function LiveClock() {

