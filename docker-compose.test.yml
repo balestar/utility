@@ -1,0 +1,94 @@
+# UTILITY — Device Test Lab
+# Android API 28-34 emulators + Windows Wine containers
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+#   ./scripts/run-tests.sh
+
+services:
+  android-api28:
+    image: budtmo/docker-android:emulator_9.0
+    container_name: test-android-api28
+    privileged: true
+    restart: no
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S10"
+      WEB_VNC: "true"
+    ports: ["5554:5554", "5555:5555", "6080:6080"]
+    volumes: [./test-payloads:/payloads:ro]
+    networks: [testnet]
+
+  android-api29:
+    image: budtmo/docker-android:emulator_10.0
+    container_name: test-android-api29
+    privileged: true
+    restart: no
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S20"
+      WEB_VNC: "true"
+    ports: ["5556:5554", "5557:5555", "6081:6080"]
+    volumes: [./test-payloads:/payloads:ro]
+    networks: [testnet]
+
+  android-api30:
+    image: budtmo/docker-android:emulator_11.0
+    container_name: test-android-api30
+    privileged: true
+    restart: no
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S21"
+      WEB_VNC: "true"
+    ports: ["5558:5554", "5559:5555", "6082:6080"]
+    volumes: [./test-payloads:/payloads:ro]
+    networks: [testnet]
+
+  android-api31:
+    image: budtmo/docker-android:emulator_12.0
+    container_name: test-android-api31
+    privileged: true
+    restart: no
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S22"
+      WEB_VNC: "true"
+    ports: ["5560:5554", "5561:5555", "6083:6080"]
+    volumes: [./test-payloads:/payloads:ro]
+    networks: [testnet]
+
+  android-api33:
+    image: budtmo/docker-android:emulator_13.0
+    container_name: test-android-api33
+    privileged: true
+    restart: no
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S23"
+      WEB_VNC: "true"
+    ports: ["5562:5554", "5563:5555", "6084:6080"]
+    volumes: [./test-payloads:/payloads:ro]
+    networks: [testnet]
+
+  android-api34:
+    image: budtmo/docker-android:emulator_14.0
+    container_name: test-android-api34
+    privileged: true
+    restart: no
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S24"
+      WEB_VNC: "true"
+    ports: ["5564:5554", "5565:5555", "6085:6080"]
+    volumes: [./test-payloads:/payloads:ro]
+    networks: [testnet]
+
+  windows-test:
+    image: scottyhardy/docker-wine:latest
+    container_name: test-windows
+    restart: no
+    volumes: [./test-payloads:/payloads:ro]
+    networks: [testnet]
+    command: tail -f /dev/null
+
+volumes:
+  test_payloads:
+
+networks:
+  testnet:
+    driver: bridge

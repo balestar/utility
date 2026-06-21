@@ -32,6 +32,7 @@ const ROUTES: PaletteItem[] = [
   { id: "embed",      label: "Payload Embedding",  sub: "PDF, video, Office, LNK trojan",   href: "/embed",     keys: "G D" },
   { id: "vault",      label: "File Vault",        sub: "All captured files across devices", href: "/vault",     keys: "G F" },
   { id: "workspaces", label: "Workspaces",        sub: "Create/switch/delete workspaces",  href: "/workspaces" },
+  { id: "test",       label: "Test Lab",          sub: "Device matrix, VPN, offline, failure analysis", href: "/test", keys: "G Q" },
   { id: "settings",   label: "Settings",          sub: "Config, PIN, connection, shortcuts", href: "/settings", keys: "G ," },
 ];
 

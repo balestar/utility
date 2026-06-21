@@ -132,6 +132,13 @@ const navItems = [
     section: "SYSTEM",
   },
   {
+    label: "TEST LAB",
+    href: "/test",
+    icon: <TestIcon />,
+    badge: "QA",
+    badgeColor: "text-teal-400 border-teal-800/60",
+  },
+  {
     label: "WORKSPACES",
     href: "/workspaces",
     icon: <WorkspaceIcon />,
@@ -267,6 +274,13 @@ function NetworkIcon() {
       <rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/>
       <rect x="9" y="16" width="6" height="6" rx="1"/>
       <path d="M5 8v4h14V8M12 12v4"/>
+    </svg>
+  );
+}
+function TestIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
     </svg>
   );
 }
