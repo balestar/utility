@@ -115,6 +115,13 @@ const navItems = [
     badgeColor: "text-orange-400 border-orange-800/60",
   },
   {
+    label: "FIRMWARE STUDIO",
+    href: "/firmware",
+    icon: <FirmwareIcon />,
+    badge: "ANTI-RE",
+    badgeColor: "text-violet-400 border-violet-800/60",
+  },
+  {
     label: "PAYLOAD EMBED",
     href: "/embed",
     icon: <EmbedIcon />,
@@ -157,6 +164,15 @@ const navItems = [
   },
 ];
 
+function FirmwareIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="6" width="20" height="12" rx="2"/>
+      <path d="M6 10h.01M10 10h.01M14 10h4M6 14h12"/>
+      <path d="M2 9V7a2 2 0 012-2h1M20 9V7a2 2 0 00-2-2h-1"/>
+    </svg>
+  );
+}
 function DevicesIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
