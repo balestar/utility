@@ -116,11 +116,16 @@ export async function POST(request: Request) {
   try { body = await request.json() as Record<string, unknown>; }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
 
-  const { session_id, action } = body as { session_id: number; action: string };
-  if (!session_id || !action)
+  const { session_id, action } = body as { session_id?: number; action: string };
+  if (!action)
+    return NextResponse.json({ ok: false, error: "action required" }, { status: 400 });
+
+  // Reference-only actions — no live session required
+  const NO_SESSION_ACTIONS = new Set(["android_adb_install"]);
+  if (!session_id && !NO_SESSION_ACTIONS.has(action))
     return NextResponse.json({ ok: false, error: "session_id + action required" }, { status: 400 });
 
-  const sid = Number(session_id);
+  const sid = session_id ? Number(session_id) : 0;
 
   try {
     const token = await getRpcToken();

