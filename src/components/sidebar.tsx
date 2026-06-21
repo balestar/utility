@@ -112,6 +112,13 @@ const navItems = [
     section: "TOOLS",
   },
   {
+    label: "iOS OPS CENTER",
+    href: "/ios",
+    icon: <IosIcon />,
+    badge: "iOS 14-18",
+    badgeColor: "text-blue-400 border-blue-800/60",
+  },
+  {
     label: "PAYLOADS",
     href: "/payloads",
     icon: <PayloadIcon />,
@@ -201,6 +208,15 @@ function AdminSecIcon() {
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
       <circle cx="12" cy="12" r="3"/>
       <path d="M12 9v-2M12 17v-2M9 12H7M17 12h-2"/>
+    </svg>
+  );
+}
+function IosIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="5" y="1" width="14" height="22" rx="3"/>
+      <path d="M9 6h6M12 18h.01"/>
+      <circle cx="12" cy="13" r="2.5"/>
     </svg>
   );
 }

