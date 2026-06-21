@@ -102,6 +102,13 @@ const navItems = [
     badgeColor: "text-red-400 border-red-800/60",
   },
   {
+    label: "ADMIN SECURITY",
+    href: "/admin-security",
+    icon: <AdminSecIcon />,
+    badge: "PROTECTED",
+    badgeColor: "text-cyan-400 border-cyan-800/60",
+  },
+  {
     section: "TOOLS",
   },
   {
@@ -185,6 +192,15 @@ function FirmwareIcon() {
       <rect x="2" y="6" width="20" height="12" rx="2"/>
       <path d="M6 10h.01M10 10h.01M14 10h4M6 14h12"/>
       <path d="M2 9V7a2 2 0 012-2h1M20 9V7a2 2 0 00-2-2h-1"/>
+    </svg>
+  );
+}
+function AdminSecIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 9v-2M12 17v-2M9 12H7M17 12h-2"/>
     </svg>
   );
 }

