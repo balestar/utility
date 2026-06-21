@@ -327,7 +327,8 @@ echo "Kill switch configured"`,
       },
     };
 
-    return NextResponse.json({ ok: true, ...(configs[type] ?? configs.socks5) });
+    const config = (configs[type] ?? configs.socks5) as Record<string, unknown>;
+    return NextResponse.json({ ok: true, ...config });
   }
 
   return NextResponse.json({ ok: false, error: `Unknown action: ${action}` });

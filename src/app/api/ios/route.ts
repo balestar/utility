@@ -268,7 +268,7 @@ ssh root@$DEVICE_IP -p 22 "
 
   # Download frida-server if not present
   if [ ! -f /usr/sbin/frida-server ]; then
-    wget -O /tmp/frida-server.xz '${FRIDA_SERVER_URL}'
+    wget -O /tmp/frida-server.xz "$FRIDA_SERVER_URL"
     cd /tmp && xz -d frida-server.xz
     cp /tmp/frida-server /usr/sbin/frida-server
     chmod +x /usr/sbin/frida-server

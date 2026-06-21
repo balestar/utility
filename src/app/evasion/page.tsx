@@ -711,14 +711,14 @@ export default function EvasionPage() {
                 </div>
               </div>
 
-              {zeroInstallResult?.data && (
+              {zeroInstallResult?.data ? (
                 <div className="border border-green-900/20 rounded p-3 mb-5">
                   <div className="text-[8px] text-green-600 mb-2">LAST RESULT</div>
                   <pre className="text-[7px] text-green-400 bg-black/40 rounded p-2 overflow-x-auto max-h-40">
                     {JSON.stringify(zeroInstallResult.data, null, 2)}
                   </pre>
                 </div>
-              )}
+              ) : null}
 
               {/* Per-version hardcoded chains */}
               <div className="space-y-3">
