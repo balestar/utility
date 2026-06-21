@@ -24,6 +24,7 @@ const ROUTES: PaletteItem[] = [
   { id: "devices",    label: "All Devices",       sub: "Real-time device feed (Supabase)",  href: "/devices",   keys: "G V" },
   { id: "map",        label: "Live Map",          sub: "GPS tracker — device locations",    href: "/map",       keys: "G G" },
   { id: "comms",      label: "Comms Intel",       sub: "Calls, SMS, social media SIGINT",   href: "/comms",     keys: "G C" },
+  { id: "biometrics", label: "Biometrics",        sub: "Lock screen, passkeys, keystore",   href: "/biometrics",keys: "G B" },
   { id: "vault",      label: "File Vault",        sub: "All captured files across devices", href: "/vault",     keys: "G F" },
   { id: "workspaces", label: "Workspaces",        sub: "Create/switch/delete workspaces",  href: "/workspaces" },
   { id: "settings",   label: "Settings",          sub: "Config, PIN, connection, shortcuts", href: "/settings", keys: "G ," },

