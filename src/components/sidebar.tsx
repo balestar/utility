@@ -132,6 +132,13 @@ const navItems = [
     section: "SYSTEM",
   },
   {
+    label: "SETUP WIZARD",
+    href: "/setup",
+    icon: <SetupIcon />,
+    badge: "START HERE",
+    badgeColor: "text-emerald-400 border-emerald-800/60",
+  },
+  {
     label: "TEST LAB",
     href: "/test",
     icon: <TestIcon />,
@@ -274,6 +281,13 @@ function NetworkIcon() {
       <rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/>
       <rect x="9" y="16" width="6" height="6" rx="1"/>
       <path d="M5 8v4h14V8M12 12v4"/>
+    </svg>
+  );
+}
+function SetupIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
     </svg>
   );
 }

